@@ -7,368 +7,64 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --bg: #0d0d0f;
-    --surface: #16161a;
-    --surface2: #1e1e24;
-    --border: rgba(255,255,255,0.07);
-    --border2: rgba(255,255,255,0.12);
-    --accent: #ff6b2b;
-    --accent2: #ff9a5c;
-    --text: #f0ede8;
-    --muted: #888;
-    --muted2: #555;
-    --green: #2ecc71;
-    --red: #e74c3c;
-    --mono: 'DM Mono', monospace;
-    --sans: 'DM Sans', sans-serif;
-  }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 48px 20px;
-  }
-
-  .header {
-    text-align: center;
-    margin-bottom: 48px;
-  }
-
-  .badge {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.15em;
-    color: var(--accent);
-    border: 1px solid rgba(255,107,43,0.3);
-    padding: 4px 12px;
-    border-radius: 100px;
-    margin-bottom: 20px;
-    text-transform: uppercase;
-  }
-
-  h1 {
-    font-size: 36px;
-    font-weight: 300;
-    letter-spacing: -0.02em;
-    line-height: 1.2;
-    color: var(--text);
-  }
-
-  h1 span {
-    color: var(--accent);
-    font-weight: 500;
-  }
-
-  .subtitle {
-    margin-top: 10px;
-    font-size: 15px;
-    color: var(--muted);
-    font-weight: 300;
-  }
-
-  .search-box {
-    width: 100%;
-    max-width: 580px;
-    margin-bottom: 32px;
-  }
-
-  .input-row {
-    display: flex;
-    gap: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: 14px;
-    padding: 6px 6px 6px 20px;
-    transition: border-color 0.2s;
-  }
-
-  .input-row:focus-within {
-    border-color: rgba(255,107,43,0.4);
-  }
-
-  .input-row input {
-    flex: 1;
-    background: none;
-    border: none;
-    outline: none;
-    font-family: var(--sans);
-    font-size: 15px;
-    color: var(--text);
-    padding: 10px 0;
-  }
-
+  :root { --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24; --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12); --accent: #ff6b2b; --accent2: #ff9a5c; --text: #f0ede8; --muted: #888; --muted2: #555; --green: #2ecc71; --red: #e74c3c; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 20px; }
+  .header { text-align: center; margin-bottom: 48px; }
+  .badge { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.15em; color: var(--accent); border: 1px solid rgba(255,107,43,0.3); padding: 4px 12px; border-radius: 100px; margin-bottom: 20px; text-transform: uppercase; }
+  h1 { font-size: 36px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.2; }
+  h1 span { color: var(--accent); font-weight: 500; }
+  .subtitle { margin-top: 10px; font-size: 15px; color: var(--muted); font-weight: 300; }
+  .search-box { width: 100%; max-width: 580px; margin-bottom: 32px; }
+  .input-row { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 6px 6px 6px 20px; transition: border-color 0.2s; }
+  .input-row:focus-within { border-color: rgba(255,107,43,0.4); }
+  .input-row input { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 15px; color: var(--text); padding: 10px 0; }
   .input-row input::placeholder { color: var(--muted2); }
-
-  .btn-buscar {
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 10px;
-    padding: 12px 24px;
-    font-family: var(--sans);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
+  .btn-buscar { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-family: var(--sans); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
   .btn-buscar:hover { background: var(--accent2); transform: translateY(-1px); }
-  .btn-buscar:active { transform: translateY(0); }
   .btn-buscar:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-  .hint {
-    font-size: 12px;
-    color: var(--muted2);
-    margin-top: 10px;
-    text-align: center;
-    font-family: var(--mono);
-  }
-
-  .loader {
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 48px;
-    width: 100%;
-    max-width: 580px;
-  }
-
+  .hint { font-size: 12px; color: var(--muted2); margin-top: 10px; text-align: center; font-family: var(--mono); }
+  .loader { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 48px; width: 100%; max-width: 580px; }
   .loader.active { display: flex; }
-
-  .spinner {
-    width: 36px;
-    height: 36px;
-    border: 2px solid var(--border2);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
+  .spinner { width: 36px; height: 36px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .loader-text {
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .log-queries {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted2);
-    text-align: center;
-    max-width: 500px;
-    line-height: 1.8;
-  }
-
-  .log-queries span {
-    display: block;
-    animation: fadeIn 0.3s ease;
-  }
-
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
-  .result-card {
-    display: none;
-    width: 100%;
-    max-width: 580px;
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: 16px;
-    overflow: hidden;
-    animation: slideUp 0.4s ease;
-  }
-
+  .loader-text { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .result-card { display: none; width: 100%; max-width: 580px; background: var(--surface); border: 1px solid var(--border2); border-radius: 16px; overflow: hidden; animation: slideUp 0.4s ease; }
   .result-card.active { display: block; }
-
   @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
-
-  .card-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .empresa-nome {
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .empresa-site {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--accent);
-    margin-top: 2px;
-  }
-
-  .tag-ok { 
-    font-family: var(--mono);
-    font-size: 11px;
-    background: rgba(46,204,113,0.1);
-    color: var(--green);
-    border: 1px solid rgba(46,204,113,0.2);
-    padding: 3px 10px;
-    border-radius: 100px;
-  }
-
-  .card-body { padding: 8px 0; }
-
-  .row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--border);
-    transition: background 0.15s;
-  }
-
+  .card-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .empresa-nome { font-size: 18px; font-weight: 500; }
+  .empresa-site { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-top: 2px; }
+  .tag-ok { font-family: var(--mono); font-size: 11px; background: rgba(46,204,113,0.1); color: var(--green); border: 1px solid rgba(46,204,113,0.2); padding: 3px 10px; border-radius: 100px; }
+  .row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
   .row:last-child { border-bottom: none; }
   .row:hover { background: var(--surface2); }
-
-  .row-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-
+  .row-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; margin-top: 2px; }
   .row-content { flex: 1; min-width: 0; }
-
-  .row-label {
-    font-size: 11px;
-    font-family: var(--mono);
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 3px;
-  }
-
-  .row-value {
-    font-size: 14px;
-    color: var(--text);
-    word-break: break-word;
-    line-height: 1.4;
-  }
-
+  .row-label { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+  .row-value { font-size: 14px; color: var(--text); word-break: break-word; line-height: 1.4; }
   .row-value.nao-encontrado { color: var(--muted2); font-style: italic; }
-
-  .row-value a {
-    color: var(--accent2);
-    text-decoration: none;
-    font-family: var(--mono);
-    font-size: 13px;
-  }
-
+  .row-value a { color: var(--accent2); text-decoration: none; font-family: var(--mono); font-size: 13px; }
   .row-value a:hover { text-decoration: underline; }
-
-  .card-footer {
-    padding: 14px 24px;
-    background: var(--surface2);
-    border-top: 1px solid var(--border);
-  }
-
-  .footer-label {
-    font-size: 11px;
-    font-family: var(--mono);
-    color: var(--muted2);
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .fontes-list { display: flex; flex-direction: column; gap: 4px; }
-
-  .fonte-item {
-    font-size: 12px;
-    font-family: var(--mono);
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
+  .card-footer { padding: 14px 24px; background: var(--surface2); border-top: 1px solid var(--border); }
+  .footer-label { font-size: 11px; font-family: var(--mono); color: var(--muted2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .fonte-item { font-size: 12px; font-family: var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fonte-item a { color: var(--muted); text-decoration: none; }
   .fonte-item a:hover { color: var(--accent2); }
-
-  .error-box {
-    display: none;
-    width: 100%;
-    max-width: 580px;
-    background: rgba(231,76,60,0.08);
-    border: 1px solid rgba(231,76,60,0.2);
-    border-radius: 12px;
-    padding: 16px 20px;
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--red);
-  }
-
+  .error-box { display: none; width: 100%; max-width: 580px; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.2); border-radius: 12px; padding: 16px 20px; font-family: var(--mono); font-size: 13px; color: var(--red); }
   .error-box.active { display: block; }
-
-  .btn-nova {
-    display: none;
-    margin: 16px auto 0;
-    background: none;
-    border: 1px solid var(--border2);
-    border-radius: 8px;
-    padding: 8px 20px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
+  .btn-nova { display: none; margin: 16px auto 0; background: none; border: 1px solid var(--border2); border-radius: 8px; padding: 8px 20px; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; transition: all 0.2s; }
   .btn-nova:hover { border-color: var(--accent); color: var(--accent); }
   .btn-nova.active { display: block; }
-
-  .quota {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted2);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 6px 12px;
-    border-radius: 100px;
-  }
-
+  .quota { position: fixed; bottom: 20px; right: 20px; font-family: var(--mono); font-size: 11px; color: var(--muted2); background: var(--surface); border: 1px solid var(--border); padding: 6px 12px; border-radius: 100px; }
   .quota span { color: var(--accent); }
 </style>
 </head>
 <body>
-
 <div class="header">
   <div class="badge">⚡ Flash Benefícios — Prospecção</div>
   <h1>Buscador de <span>Leads</span></h1>
   <p class="subtitle">Dados reais. Sem invenção. Só o que existe na web.</p>
 </div>
-
 <div class="search-box">
   <div class="input-row">
     <input type="text" id="input-empresa" placeholder="Nome da empresa ou CNPJ..." autocomplete="off" />
@@ -379,77 +75,32 @@
   </div>
   <p class="hint">Ex: "Totvs" · "Magazine Luiza" · "12.345.678/0001-90"</p>
 </div>
-
 <div class="loader" id="loader">
   <div class="spinner"></div>
   <p class="loader-text">Pesquisando na web...</p>
-  <div class="log-queries" id="log-queries"></div>
 </div>
-
 <div class="result-card" id="result-card">
   <div class="card-header">
-    <div>
-      <div class="empresa-nome" id="r-empresa">—</div>
-      <div class="empresa-site" id="r-site">—</div>
-    </div>
+    <div><div class="empresa-nome" id="r-empresa">—</div><div class="empresa-site" id="r-site">—</div></div>
     <div class="tag-ok">✓ Dados reais</div>
   </div>
   <div class="card-body">
-    <div class="row">
-      <div class="row-icon">👤</div>
-      <div class="row-content">
-        <div class="row-label">Responsável RH</div>
-        <div class="row-value" id="r-rh">—</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="row-icon">💰</div>
-      <div class="row-content">
-        <div class="row-label">Responsável Financeiro</div>
-        <div class="row-value" id="r-fin">—</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="row-icon">📧</div>
-      <div class="row-content">
-        <div class="row-label">Email</div>
-        <div class="row-value" id="r-email">—</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="row-icon">📱</div>
-      <div class="row-content">
-        <div class="row-label">Telefone / WhatsApp</div>
-        <div class="row-value" id="r-tel">—</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="row-icon">🔗</div>
-      <div class="row-content">
-        <div class="row-label">LinkedIn empresa</div>
-        <div class="row-value" id="r-li-emp">—</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="row-icon">👔</div>
-      <div class="row-content">
-        <div class="row-label">LinkedIn responsável</div>
-        <div class="row-value" id="r-li-resp">—</div>
-      </div>
-    </div>
+    <div class="row"><div class="row-icon">👤</div><div class="row-content"><div class="row-label">Responsável RH</div><div class="row-value" id="r-rh">—</div></div></div>
+    <div class="row"><div class="row-icon">🔗</div><div class="row-content"><div class="row-label">LinkedIn RH</div><div class="row-value" id="r-li-rh">—</div></div></div>
+    <div class="row"><div class="row-icon">💰</div><div class="row-content"><div class="row-label">Responsável Financeiro</div><div class="row-value" id="r-fin">—</div></div></div>
+    <div class="row"><div class="row-icon">🔗</div><div class="row-content"><div class="row-label">LinkedIn Financeiro</div><div class="row-value" id="r-li-fin">—</div></div></div>
+    <div class="row"><div class="row-icon">📧</div><div class="row-content"><div class="row-label">Email</div><div class="row-value" id="r-email">—</div></div></div>
+    <div class="row"><div class="row-icon">📱</div><div class="row-content"><div class="row-label">Telefone / WhatsApp</div><div class="row-value" id="r-tel">—</div></div></div>
+    <div class="row"><div class="row-icon">🏢</div><div class="row-content"><div class="row-label">LinkedIn Empresa</div><div class="row-value" id="r-li-emp">—</div></div></div>
   </div>
   <div class="card-footer">
     <div class="footer-label">Fontes consultadas</div>
-    <div class="fontes-list" id="r-fontes"></div>
+    <div id="r-fontes"></div>
   </div>
 </div>
-
 <div class="error-box" id="error-box"></div>
-
 <button class="btn-nova" id="btn-nova" onclick="novaBusca()">+ Nova busca</button>
-
 <div class="quota">Buscas hoje: <span id="quota-count">0</span>/100</div>
-
 <script>
 let quotaCount = parseInt(localStorage.getItem('quota_count') || '0');
 let quotaDate = localStorage.getItem('quota_date') || '';
@@ -457,85 +108,39 @@ const hoje = new Date().toDateString();
 if (quotaDate !== hoje) { quotaCount = 0; localStorage.setItem('quota_date', hoje); }
 document.getElementById('quota-count').textContent = quotaCount;
 
-const logMsgs = [
-  "Buscando responsável de RH...",
-  "Procurando contatos no LinkedIn...",
-  "Verificando site oficial...",
-  "Buscando emails públicos...",
-  "Consolidando dados encontrados..."
-];
-
-let logInterval;
-
-function iniciarLog() {
-  const logEl = document.getElementById('log-queries');
-  logEl.innerHTML = '';
-  let i = 0;
-  logInterval = setInterval(() => {
-    if (i < logMsgs.length) {
-      const s = document.createElement('span');
-      s.textContent = '→ ' + logMsgs[i];
-      logEl.appendChild(s);
-      i++;
-    }
-  }, 1800);
-}
-
-function pararLog() {
-  clearInterval(logInterval);
-}
-
 function setVal(id, val) {
   const el = document.getElementById(id);
-  const nao = !val || val === 'Não encontrado' || val.toLowerCase().includes('não encontrado');
-  if (nao) {
-    el.textContent = 'Não encontrado em fonte pública';
-    el.className = 'row-value nao-encontrado';
-  } else if (val.startsWith('http') || val.startsWith('linkedin')) {
-    el.innerHTML = `<a href="${val.startsWith('http') ? val : 'https://' + val}" target="_blank">${val}</a>`;
-    el.className = 'row-value';
-  } else {
-    el.textContent = val;
-    el.className = 'row-value';
-  }
+  const nao = !val || val.toLowerCase().includes('não encontrado');
+  if (nao) { el.textContent = 'Não encontrado em fonte pública'; el.className = 'row-value nao-encontrado'; }
+  else if (val.startsWith('http') || val.startsWith('linkedin')) { el.innerHTML = `<a href="${val.startsWith('http') ? val : 'https://' + val}" target="_blank">${val}</a>`; el.className = 'row-value'; }
+  else { el.textContent = val; el.className = 'row-value'; }
 }
 
 async function buscar() {
   const empresa = document.getElementById('input-empresa').value.trim();
   if (!empresa) return;
-
   document.getElementById('result-card').classList.remove('active');
   document.getElementById('error-box').classList.remove('active');
   document.getElementById('btn-nova').classList.remove('active');
   document.getElementById('loader').classList.add('active');
   document.getElementById('btn-buscar').disabled = true;
-  iniciarLog();
-
   try {
-    const res = await fetch('/buscar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa })
-    });
-
+    const res = await fetch('/buscar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresa }) });
     const data = await res.json();
-    pararLog();
     document.getElementById('loader').classList.remove('active');
-
     if (data.erro) {
       document.getElementById('error-box').textContent = '⚠ ' + data.erro;
       document.getElementById('error-box').classList.add('active');
     } else {
       document.getElementById('r-empresa').textContent = data.empresa || empresa;
       document.getElementById('r-site').textContent = data.site || '';
-
       setVal('r-rh', data.responsavel_rh);
+      setVal('r-li-rh', data.linkedin_rh);
       setVal('r-fin', data.responsavel_financeiro);
+      setVal('r-li-fin', data.linkedin_financeiro);
       setVal('r-email', data.email);
       setVal('r-tel', data.telefone);
       setVal('r-li-emp', data.linkedin_empresa);
-      setVal('r-li-resp', data.linkedin_responsavel);
-
       const fontesEl = document.getElementById('r-fontes');
       fontesEl.innerHTML = '';
       (data.fontes || []).slice(0, 4).forEach(f => {
@@ -544,21 +149,16 @@ async function buscar() {
         d.innerHTML = `<a href="${f}" target="_blank">${f}</a>`;
         fontesEl.appendChild(d);
       });
-
       document.getElementById('result-card').classList.add('active');
-
       quotaCount++;
       localStorage.setItem('quota_count', quotaCount);
       document.getElementById('quota-count').textContent = quotaCount;
     }
-
   } catch (err) {
-    pararLog();
     document.getElementById('loader').classList.remove('active');
-    document.getElementById('error-box').textContent = '⚠ Erro de conexão. O servidor está rodando?';
+    document.getElementById('error-box').textContent = '⚠ Erro de conexão.';
     document.getElementById('error-box').classList.add('active');
   }
-
   document.getElementById('btn-buscar').disabled = false;
   document.getElementById('btn-nova').classList.add('active');
 }
@@ -571,9 +171,7 @@ function novaBusca() {
   document.getElementById('input-empresa').focus();
 }
 
-document.getElementById('input-empresa').addEventListener('keydown', e => {
-  if (e.key === 'Enter') buscar();
-});
+document.getElementById('input-empresa').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
 </script>
 </body>
 </html>
