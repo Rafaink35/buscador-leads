@@ -10,6 +10,8 @@ load_dotenv()
 app = Flask(__name__, static_folder=".")
 
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
+APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+APIFY_USOS_MAXIMOS_MES = 40  # margem de segurança dentro dos $5 grátis
 
 
 def limpar_cnpj(cnpj: str) -> str:
@@ -169,6 +171,69 @@ def texto_resultados(resultados: list) -> str:
     ])
 
 
+def ler_contador_apify() -> dict:
+    """Persiste o contador em arquivo, sobrevive a restarts do servidor"""
+    caminho = "apify_uso.json"
+    hoje = __import__("datetime").date.today()
+    mes_atual = f"{hoje.year}-{hoje.month:02d}"
+    if os.path.exists(caminho):
+        with open(caminho, "r") as f:
+            dados = json.load(f)
+        if dados.get("mes") != mes_atual:
+            dados = {"mes": mes_atual, "usos": 0}
+    else:
+        dados = {"mes": mes_atual, "usos": 0}
+    return dados
+
+
+def gravar_contador_apify(dados: dict):
+    with open("apify_uso.json", "w") as f:
+        json.dump(dados, f)
+
+
+def pode_usar_apify() -> bool:
+    dados = ler_contador_apify()
+    return dados["usos"] < APIFY_USOS_MAXIMOS_MES
+
+
+def registrar_uso_apify():
+    dados = ler_contador_apify()
+    dados["usos"] += 1
+    gravar_contador_apify(dados)
+
+
+def buscar_apify_funcionarios(linkedin_empresa_url: str) -> list:
+    """Chama o Actor da Apify (tier Free, até 50 perfis) e retorna lista de funcionários.
+    Só é chamado quando a busca gratuita via Google não encontrou o Financeiro."""
+    if not APIFY_TOKEN or not linkedin_empresa_url:
+        return []
+    try:
+        url = "https://api.apify.com/v2/acts/apt_marble~linkedin-company-employees-scraper/run-sync-get-dataset-items"
+        params = {"token": APIFY_TOKEN}
+        payload = {"companies": [linkedin_empresa_url]}
+        r = requests.post(url, params=params, json=payload, timeout=90)
+        if r.status_code != 200:
+            return []
+        return r.json()
+    except Exception:
+        return []
+
+
+def filtrar_cargo_na_lista(funcionarios: list, termos_cargo: list) -> dict:
+    """Procura na lista de funcionários (vinda da Apify) alguém com o cargo desejado"""
+    for f in funcionarios:
+        titulo = f.get("title", "") or f.get("headline", "") or f.get("position", "")
+        nome = f.get("name", "") or f.get("fullName", "")
+        link = f.get("profileUrl", "") or f.get("url", "") or f.get("link", "")
+        if not titulo or not nome:
+            continue
+        tem_cargo = any(normalizar_texto(termo) in normalizar_texto(titulo) for termo in termos_cargo)
+        if tem_cargo:
+            cargo_match = next((t for t in termos_cargo if normalizar_texto(t) in normalizar_texto(titulo)), titulo)
+            return {"nome_cargo": f"{nome} - {cargo_match}", "linkedin": link}
+    return None
+
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -247,6 +312,17 @@ def buscar_lead():
         pessoa_fin = extrair_pessoa_linkedin(r6, termo_busca, termos_fin)
         fontes += [r.get("link") for r in r6 if r.get("link")]
 
+        # Fallback: se a busca gratuita não achou o Financeiro, tenta via Apify (tier Free, até 50 perfis)
+        apify_usado = False
+        if not pessoa_fin and linkedin_empresa and pode_usar_apify():
+            funcionarios = buscar_apify_funcionarios(linkedin_empresa)
+            if funcionarios:
+                registrar_uso_apify()
+                apify_usado = True
+                pessoa_fin = filtrar_cargo_na_lista(funcionarios, termos_fin)
+                if not pessoa_rh:
+                    pessoa_rh = filtrar_cargo_na_lista(funcionarios, termos_rh)
+
         # Busca 7: email de RH em sites de vagas (Gupy, Indeed, Catho) — fonte de alta confiança
         r7 = buscar_google(f'"{termo_busca}" vaga emprego enviar currículo email (gupy.io OR indeed.com OR catho.com.br)')
         texto7 = texto_resultados(r7)
@@ -264,6 +340,7 @@ def buscar_lead():
         telefones_repetidos = [t for t in telefones_encontrados if normalizar_telefone(t) in numeros_conhecidos_norm]
 
         nao_encontrado = "Não encontrado em fonte pública"
+        dados_quota = ler_contador_apify()
 
         return jsonify({
             "empresa": empresa_nome,
@@ -277,6 +354,9 @@ def buscar_lead():
             "linkedin_rh_url": pessoa_rh["linkedin"] if pessoa_rh else None,
             "linkedin_financeiro": pessoa_fin["nome_cargo"] + " (a confirmar)" if pessoa_fin else nao_encontrado,
             "linkedin_financeiro_url": pessoa_fin["linkedin"] if pessoa_fin else None,
+            "apify_usado_nesta_busca": apify_usado,
+            "apify_usos_no_mes": dados_quota["usos"],
+            "apify_limite_mes": APIFY_USOS_MAXIMOS_MES,
             "fontes": fontes
         })
 
