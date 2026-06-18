@@ -49,11 +49,36 @@ def buscar_google(query: str) -> list:
         return []
 
 
-def extrair_emails(texto: str) -> list:
+def extrair_emails(texto: str, empresa: str = None, dominio_oficial: str = None, aceitar_plataformas_vagas: bool = False) -> list:
     padrao = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
     emails = re.findall(padrao, texto)
     ignorar = ['png', 'jpg', 'gif', 'example', 'seusite', 'sentry', 'wixpress', '.css', '.js']
-    return list(set([e.lower() for e in emails if not any(i in e.lower() for i in ignorar)]))
+    emails = [e.lower() for e in emails if not any(i in e.lower() for i in ignorar)]
+
+    if not empresa and not dominio_oficial:
+        return list(set(emails))
+
+    empresa_slug = normalizar_texto(empresa)[:8] if empresa else ""
+    dominio_slug = normalizar_texto(dominio_oficial.replace("https://", "").replace("http://", "")) if dominio_oficial else ""
+    plataformas_vagas = ["gupy.io", "catho.com.br", "indeedemail.com", "vagas.com.br"]
+
+    validos = []
+    for email in emails:
+        usuario, dominio_email = email.split("@")[0], email.split("@")[-1]
+        usuario_norm = normalizar_texto(usuario)
+        dominio_email_norm = normalizar_texto(dominio_email)
+
+        # Caso normal: domínio do email bate com a empresa ou com o site oficial
+        if (empresa_slug and empresa_slug in dominio_email_norm) or (dominio_slug and dominio_slug in dominio_email_norm):
+            validos.append(email)
+            continue
+
+        # Caso plataforma de vagas: nome da empresa aparece ANTES do @ (ex: vagas.empresa@gupy.io)
+        if aceitar_plataformas_vagas and any(p in dominio_email_norm for p in [normalizar_texto(pv) for pv in plataformas_vagas]):
+            if empresa_slug and empresa_slug in usuario_norm:
+                validos.append(email)
+
+    return list(set(validos))
 
 
 def extrair_telefones(texto: str) -> list:
@@ -179,11 +204,10 @@ def buscar_lead():
 
         termo_busca = empresa_nome if empresa_nome != entrada else entrada
 
-        # Busca 1: contato oficial
+        # Busca 1: contato oficial — descobre o site primeiro
         r1 = buscar_google(f'"{termo_busca}" telefone contato')
         texto1 = texto_resultados(r1)
         telefones_encontrados += extrair_telefones(texto1)
-        emails_encontrados += extrair_emails(texto1)
         site = extrair_dominio_oficial(r1, termo_busca)
         fontes += [r.get("link") for r in r1 if r.get("link")]
 
@@ -191,10 +215,13 @@ def buscar_lead():
         r2 = buscar_google(f'"{termo_busca}" "fale conosco" OR "atendimento" email')
         texto2 = texto_resultados(r2)
         telefones_encontrados += extrair_telefones(texto2)
-        emails_encontrados += extrair_emails(texto2)
         if not site:
             site = extrair_dominio_oficial(r2, termo_busca)
         fontes += [r.get("link") for r in r2 if r.get("link")]
+
+        # Agora que já temos o site oficial (se encontrado), valida os emails contra ele
+        emails_encontrados += extrair_emails(texto1, empresa=termo_busca, dominio_oficial=site)
+        emails_encontrados += extrair_emails(texto2, empresa=termo_busca, dominio_oficial=site)
 
         # Busca 3: WhatsApp comercial
         r3 = buscar_google(f'"{termo_busca}" WhatsApp comercial vendas')
@@ -213,11 +240,20 @@ def buscar_lead():
         pessoa_rh = extrair_pessoa_linkedin(r5, termo_busca, termos_rh)
         fontes += [r.get("link") for r in r5 if r.get("link")]
 
+
         # Busca 6: Financeiro no LinkedIn (extra, marcado como "a confirmar")
         termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller", "Controladoria"]
         r6 = buscar_google(f'"{termo_busca}" (diretor OR gerente OR CFO) financeiro site:linkedin.com/in')
         pessoa_fin = extrair_pessoa_linkedin(r6, termo_busca, termos_fin)
         fontes += [r.get("link") for r in r6 if r.get("link")]
+
+        # Busca 7: email de RH em sites de vagas (Gupy, Indeed, Catho) — fonte de alta confiança
+        r7 = buscar_google(f'"{termo_busca}" vaga emprego enviar currículo email (gupy.io OR indeed.com OR catho.com.br)')
+        texto7 = texto_resultados(r7)
+        emails_rh_vagas = extrair_emails(texto7, empresa=termo_busca, dominio_oficial=site, aceitar_plataformas_vagas=True)
+        if emails_rh_vagas:
+            emails_encontrados += emails_rh_vagas
+        fontes += [r.get("link") for r in r7 if r.get("link")]
 
         telefones_encontrados = list(dict.fromkeys(telefones_encontrados))
         emails_encontrados = list(dict.fromkeys(emails_encontrados))
