@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root { --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24; --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12); --accent: #ff6b2b; --accent2: #ff9a5c; --text: #f0ede8; --muted: #888; --muted2: #555; --green: #2ecc71; --red: #e74c3c; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif; }
+  :root { --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24; --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12); --accent: #ff6b2b; --accent2: #ff9a5c; --text: #f0ede8; --muted: #888; --muted2: #555; --green: #2ecc71; --yellow: #e8b339; --red: #e74c3c; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif; }
   body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 20px; }
   .header { text-align: center; margin-bottom: 40px; }
   .badge { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.15em; color: var(--accent); border: 1px solid rgba(255,107,43,0.3); padding: 4px 12px; border-radius: 100px; margin-bottom: 20px; text-transform: uppercase; }
@@ -47,6 +47,16 @@
   .item-conhecido .badge-conhecido { font-size: 10px; background: var(--muted2); color: var(--text); padding: 2px 8px; border-radius: 100px; }
   .item-email { font-family: var(--mono); font-size: 14px; padding: 8px 0; color: var(--text); }
   .empty-msg { font-style: italic; color: var(--muted2); font-size: 13px; }
+  .row { display: flex; align-items: flex-start; gap: 12px; padding: 4px 0; }
+  .row-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--surface2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; margin-top: 2px; }
+  .row-content { flex: 1; min-width: 0; }
+  .row-label { font-size: 10px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+  .row-value { font-size: 14px; color: var(--text); word-break: break-word; line-height: 1.4; }
+  .row-value.nao-encontrado { color: var(--muted2); font-style: italic; }
+  .row-value a { color: var(--accent2); text-decoration: none; font-family: var(--mono); font-size: 13px; }
+  .row-value a:hover { text-decoration: underline; }
+  .selo-confirmar { display: inline-block; font-size: 9px; background: rgba(232,179,57,0.15); color: var(--yellow); border: 1px solid rgba(232,179,57,0.3); padding: 1px 6px; border-radius: 100px; margin-left: 6px; font-family: var(--mono); vertical-align: middle; }
+  .aviso-extra { font-size: 11px; color: var(--muted2); margin-top: 8px; font-style: italic; }
   .card-footer { padding: 14px 24px; background: var(--surface2); }
   .fonte-item { font-size: 12px; font-family: var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fonte-item a { color: var(--muted); text-decoration: none; }
@@ -61,7 +71,7 @@
 <body>
 <div class="header">
   <div class="badge">⚡ Flash Benefícios — Enriquecimento</div>
-  <h1>Telefone & Email <span>Real</span></h1>
+  <h1>Telefone, Email & <span>LinkedIn</span></h1>
   <p class="subtitle">Compara com o que você já tem e mostra só o que é novo.</p>
 </div>
 <div class="search-box">
@@ -100,6 +110,19 @@
     <div class="section-title">📧 Emails encontrados</div>
     <div class="item-list" id="r-emails"></div>
   </div>
+  <div class="section">
+    <div class="section-title">🔗 LinkedIn empresa</div>
+    <div class="row-value" id="r-li-empresa">—</div>
+  </div>
+  <div class="section">
+    <div class="section-title">👤 Possível RH <span class="selo-confirmar">a confirmar</span></div>
+    <div class="row-value" id="r-li-rh">—</div>
+  </div>
+  <div class="section">
+    <div class="section-title">💰 Possível Financeiro <span class="selo-confirmar">a confirmar</span></div>
+    <div class="row-value" id="r-li-fin">—</div>
+    <div class="aviso-extra">Campos com "a confirmar" são pistas, não certezas — confira no LinkedIn antes de usar.</div>
+  </div>
   <div class="card-footer">
     <div class="section-title">Fontes consultadas</div>
     <div id="r-fontes"></div>
@@ -108,6 +131,21 @@
 <div class="error-box" id="error-box"></div>
 <button class="btn-nova" id="btn-nova" onclick="novaBusca()">+ Nova busca</button>
 <script>
+function setLinkedinVal(id, val, url) {
+  const el = document.getElementById(id);
+  const nao = !val || val.toLowerCase().includes('não encontrado');
+  if (nao) {
+    el.textContent = 'Não encontrado em fonte pública';
+    el.className = 'row-value nao-encontrado';
+  } else if (url) {
+    el.innerHTML = `${val} — <a href="${url}" target="_blank">ver perfil</a>`;
+    el.className = 'row-value';
+  } else {
+    el.textContent = val;
+    el.className = 'row-value';
+  }
+}
+
 async function buscar() {
   const empresa = document.getElementById('input-empresa').value.trim();
   const numeros = document.getElementById('input-numeros').value.trim();
@@ -174,6 +212,10 @@ async function buscar() {
           emailsEl.appendChild(d);
         });
       }
+
+      setLinkedinVal('r-li-empresa', data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
+      setLinkedinVal('r-li-rh', data.linkedin_rh, data.linkedin_rh_url);
+      setLinkedinVal('r-li-fin', data.linkedin_financeiro, data.linkedin_financeiro_url);
 
       const fontesEl = document.getElementById('r-fontes');
       fontesEl.innerHTML = '';
