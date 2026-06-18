@@ -98,6 +98,12 @@
     <div><div class="empresa-nome" id="r-empresa">—</div><div class="empresa-site" id="r-site">—</div></div>
     <div class="tag-ok" id="r-tag">✓ Dados reais</div>
   </div>
+  <div class="section" id="quota-apify-section" style="display:none; padding: 10px 24px; background: var(--surface2); border-bottom: 1px solid var(--border);">
+    <div style="font-family: var(--mono); font-size: 11px; color: var(--muted);">
+      🔎 Busca avançada (Apify) usada nesta consulta: <span id="quota-usado-aviso" style="color: var(--yellow);"></span><br>
+      Uso este mês: <span id="quota-texto"></span>
+    </div>
+  </div>
   <div class="section">
     <div class="section-title">📱 Telefones novos (diferentes do HubSpot)</div>
     <div class="item-list" id="r-telefones-novos"></div>
@@ -216,6 +222,12 @@ async function buscar() {
       setLinkedinVal('r-li-empresa', data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
       setLinkedinVal('r-li-rh', data.linkedin_rh, data.linkedin_rh_url);
       setLinkedinVal('r-li-fin', data.linkedin_financeiro, data.linkedin_financeiro_url);
+
+      if (data.apify_limite_mes !== undefined) {
+        document.getElementById('quota-apify-section').style.display = 'block';
+        document.getElementById('quota-usado-aviso').textContent = data.apify_usado_nesta_busca ? 'Sim' : 'Não (achou de graça)';
+        document.getElementById('quota-texto').textContent = `${data.apify_usos_no_mes} / ${data.apify_limite_mes}`;
+      }
 
       const fontesEl = document.getElementById('r-fontes');
       fontesEl.innerHTML = '';
