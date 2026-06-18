@@ -9,8 +9,9 @@ load_dotenv()
 app = Flask(__name__, static_folder=".")
 
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
-GEMINI_KEY  = os.getenv("GEMINI_API_KEY")
-GEMINI_URL  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_KEY}"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
 def buscar(query):
@@ -24,13 +25,22 @@ def resumir(resultados):
     return "\n".join([f"Título: {r.get('title','')}\nLink: {r.get('link','')}\nResumo: {r.get('snippet','')}\n---" for r in resultados])
 
 
-def chamar_gemini(prompt):
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.0, "maxOutputTokens": 1200}}
-    r = requests.post(GEMINI_URL, json=payload)
+def chamar_groq(prompt):
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1200,
+        "temperature": 0.0
+    }
+    r = requests.post(GROQ_URL, headers=headers, json=payload)
     data = r.json()
     if "error" in data:
-        raise Exception(data["error"].get("message", "Erro no Gemini"))
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+        raise Exception(data["error"].get("message", "Erro no Groq"))
+    return data["choices"][0]["message"]["content"]
 
 
 PROMPT = """Você é um validador RIGOROSO de dados de prospecção B2B no Brasil. Sua prioridade #1 é NUNCA atribuir uma pessoa errada a uma empresa.
@@ -47,7 +57,7 @@ REGRAS DE VALIDAÇÃO OBRIGATÓRIAS antes de incluir qualquer pessoa como respon
 4. Na dúvida, SEMPRE prefira retornar "Não encontrado em fonte pública" do que arriscar um nome errado. Um falso negativo é aceitável; um falso positivo não é.
 5. Emails e telefones só devem vir do site oficial da empresa ou de páginas que claramente pertencem a ela (mesmo domínio do site oficial).
 
-Responda APENAS com JSON puro, sem markdown, sem explicações:
+Responda APENAS com JSON puro, sem markdown, sem explicações, sem texto antes ou depois:
 {{
   "empresa": "nome oficial da empresa",
   "site": "url do site oficial ou Não encontrado em fonte pública",
@@ -81,7 +91,7 @@ def buscar_lead():
             f'"{empresa}" site:linkedin.com/company',
             f'"{empresa}" ("gerente de RH" OR "diretor de RH" OR "head de RH" OR "gerente de recursos humanos") site:linkedin.com/in',
             f'"{empresa}" ("diretor financeiro" OR "CFO" OR "gerente financeiro") site:linkedin.com/in',
-            f'"{empresa}" telefone WhatsApp contato site:{empresa.lower().replace(" ", "")}.com.br'
+            f'"{empresa}" telefone WhatsApp contato'
         ]
 
         for query in queries:
@@ -90,7 +100,7 @@ def buscar_lead():
             fontes += [x.get("link") for x in r if x.get("link")]
 
         fontes = list(dict.fromkeys(fontes))[:6]
-        resposta = chamar_gemini(PROMPT.format(empresa=empresa, resultados=resumir(todos[:20])))
+        resposta = chamar_groq(PROMPT.format(empresa=empresa, resultados=resumir(todos[:20])))
         resposta = resposta.strip().replace("```json", "").replace("```", "").strip()
         resultado = json.loads(resposta)
         resultado["fontes"] = fontes
