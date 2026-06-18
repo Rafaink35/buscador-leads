@@ -25,7 +25,7 @@ def resumir(resultados):
 
 
 def chamar_gemini(prompt):
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000}}
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.0, "maxOutputTokens": 1200}}
     r = requests.post(GEMINI_URL, json=payload)
     data = r.json()
     if "error" in data:
@@ -33,23 +33,31 @@ def chamar_gemini(prompt):
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
-PROMPT = """Analise os resultados de busca sobre "{empresa}" e extraia APENAS dados explícitos.
-NUNCA invente. Se não encontrar: "Não encontrado em fonte pública".
+PROMPT = """Você é um validador RIGOROSO de dados de prospecção B2B no Brasil. Sua prioridade #1 é NUNCA atribuir uma pessoa errada a uma empresa.
 
-Resultados:
+Empresa-alvo: "{empresa}"
+
+Resultados de busca (já filtrados para perfis de LinkedIn de pessoas e páginas da empresa):
 {resultados}
 
-Responda APENAS JSON puro sem markdown:
+REGRAS DE VALIDAÇÃO OBRIGATÓRIAS antes de incluir qualquer pessoa como responsável:
+1. O resultado precisa ser um perfil do LinkedIn (linkedin.com/in/) cujo TÍTULO ou RESUMO mencione explicitamente o nome "{empresa}" como o cargo ATUAL da pessoa (não experiência passada, não cliente, não menção aleatória).
+2. Se o snippet do LinkedIn mostra a pessoa em OUTRA empresa diferente de "{empresa}", ou a relação com "{empresa}" não está clara, NÃO inclua essa pessoa — retorne "Não encontrado em fonte pública" para esse campo.
+3. Nomes de pessoas que aparecem em sites de terceiros (associações, sindicatos, blogs) sem ligação clara e ATUAL com "{empresa}" devem ser descartados.
+4. Na dúvida, SEMPRE prefira retornar "Não encontrado em fonte pública" do que arriscar um nome errado. Um falso negativo é aceitável; um falso positivo não é.
+5. Emails e telefones só devem vir do site oficial da empresa ou de páginas que claramente pertencem a ela (mesmo domínio do site oficial).
+
+Responda APENAS com JSON puro, sem markdown, sem explicações:
 {{
-  "empresa": "nome oficial",
-  "site": "url ou Não encontrado em fonte pública",
-  "responsavel_rh": "Nome - Cargo ou Não encontrado em fonte pública",
-  "linkedin_rh": "url linkedin RH ou Não encontrado em fonte pública",
-  "responsavel_financeiro": "Nome - Cargo ou Não encontrado em fonte pública",
-  "linkedin_financeiro": "url linkedin Financeiro ou Não encontrado em fonte pública",
-  "email": "email ou Não encontrado em fonte pública",
-  "telefone": "telefone ou Não encontrado em fonte pública",
-  "linkedin_empresa": "url linkedin empresa ou Não encontrado em fonte pública",
+  "empresa": "nome oficial da empresa",
+  "site": "url do site oficial ou Não encontrado em fonte pública",
+  "responsavel_rh": "Nome - Cargo (APENAS se atualmente na empresa-alvo, confirmado) ou Não encontrado em fonte pública",
+  "linkedin_rh": "url linkedin do RH ou Não encontrado em fonte pública",
+  "responsavel_financeiro": "Nome - Cargo (APENAS se atualmente na empresa-alvo, confirmado) ou Não encontrado em fonte pública",
+  "linkedin_financeiro": "url linkedin do Financeiro ou Não encontrado em fonte pública",
+  "email": "email do domínio oficial ou Não encontrado em fonte pública",
+  "telefone": "telefone do site oficial ou Não encontrado em fonte pública",
+  "linkedin_empresa": "url linkedin da empresa ou Não encontrado em fonte pública",
   "fontes": ["url1", "url2"]
 }}"""
 
@@ -67,20 +75,23 @@ def buscar_lead():
     try:
         todos = []
         fontes = []
-        for query in [
-            f"{empresa} site oficial contato email",
-            f"{empresa} LinkedIn empresa",
-            f"{empresa} gerente diretor RH LinkedIn",
-            f"{empresa} diretor financeiro CFO LinkedIn",
-            f"{empresa} telefone WhatsApp contato"
-        ]:
+
+        queries = [
+            f'"{empresa}" site oficial contato email',
+            f'"{empresa}" site:linkedin.com/company',
+            f'"{empresa}" ("gerente de RH" OR "diretor de RH" OR "head de RH" OR "gerente de recursos humanos") site:linkedin.com/in',
+            f'"{empresa}" ("diretor financeiro" OR "CFO" OR "gerente financeiro") site:linkedin.com/in',
+            f'"{empresa}" telefone WhatsApp contato site:{empresa.lower().replace(" ", "")}.com.br'
+        ]
+
+        for query in queries:
             r = buscar(query)
             todos.extend(r)
             fontes += [x.get("link") for x in r if x.get("link")]
 
         fontes = list(dict.fromkeys(fontes))[:6]
-        resposta = chamar_gemini(PROMPT.format(empresa=empresa, resultados=resumir(todos[:15])))
-        resposta = resposta.strip().replace("```json","").replace("```","").strip()
+        resposta = chamar_gemini(PROMPT.format(empresa=empresa, resultados=resumir(todos[:20])))
+        resposta = resposta.strip().replace("```json", "").replace("```", "").strip()
         resultado = json.loads(resposta)
         resultado["fontes"] = fontes
         return jsonify(resultado)
