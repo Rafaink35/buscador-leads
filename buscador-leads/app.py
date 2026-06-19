@@ -221,6 +221,57 @@ def descobrir_site(empresa: str) -> str:
     return descobrir_site_tentativa_direta(empresa) or descobrir_site_via_duckduckgo(empresa)
 
 
+DDDS_VALIDOS = {
+    '11','12','13','14','15','16','17','18','19',  # SP
+    '21','22','24',                                  # RJ
+    '27','28',                                        # ES
+    '31','32','33','34','35','37','38',               # MG
+    '41','42','43','44','45','46',                    # PR
+    '47','48','49',                                    # SC
+    '51','53','54','55',                                # RS
+    '61',                                                # DF
+    '62','64',                                           # GO
+    '63',                                                 # TO
+    '65','66',                                            # MT
+    '67',                                                  # MS
+    '68',                                                   # AC
+    '69',                                                    # RO
+    '71','73','74','75','77',                                # BA
+    '79',                                                      # SE
+    '81','87',                                                  # PE
+    '82',                                                        # AL
+    '83',                                                         # PB
+    '84',                                                          # RN
+    '85','88',                                                      # CE
+    '86','89',                                                       # PI
+    '91','93','94',                                                   # PA
+    '92','97',                                                         # AM
+    '95',                                                               # RR
+    '96',                                                                # AP
+    '98','99',                                                           # MA
+}
+
+
+def ddd_valido(telefone: str) -> bool:
+    """Extrai o DDD de um telefone formatado e verifica se é um DDD real do Brasil"""
+    digitos = re.sub(r'\D', '', telefone)
+    if len(digitos) < 10:
+        return False
+    ddd = digitos[:2]
+    return ddd in DDDS_VALIDOS
+
+
+def telefone_plausivel(telefone: str) -> bool:
+    """Validação final: DDD real + quantidade de dígitos correta (10 ou 11, sem contar DDD do país)"""
+    digitos = re.sub(r'\D', '', telefone)
+    # remove código do país se presente
+    if digitos.startswith('55') and len(digitos) > 11:
+        digitos = digitos[2:]
+    if len(digitos) not in (10, 11):
+        return False
+    return digitos[:2] in DDDS_VALIDOS
+
+
 def extrair_emails_telefones_do_site(url_base: str) -> dict:
     paginas = ["", "/contato", "/fale-conosco", "/sobre", "/atendimento", "/contact",
                "/trabalhe-conosco", "/carreiras", "/financeiro", "/fornecedores",
@@ -239,13 +290,21 @@ def extrair_emails_telefones_do_site(url_base: str) -> dict:
             ignorar = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'sentry', 'wixpress',
                        '.css', '.js', 'example', 'schema.org', 'w3.org', 'gravatar']
             emails += [e.lower() for e in achados if not any(i in e.lower() for i in ignorar)]
+
+            # Telefones: regex captura candidatos, validação de DDD descarta lixo
+            candidatos_tel = []
             for p in [r'\(\d{2}\)\s?\d{4,5}-?\d{4}', r'\+55\s?\d{2}\s?\d{4,5}[-\s]?\d{4}',
                       r'\b\d{2}\s\d{4,5}-?\d{4}\b', r'0800\s?\d{3}\s?\d{4}']:
-                telefones += re.findall(p, texto)
-            whats = re.findall(r'(?:wa\.me|api\.whatsapp\.com/send\?phone=)/?(\d{10,13})', texto)
+                candidatos_tel += re.findall(p, texto)
+            telefones += [t for t in candidatos_tel if t.startswith('0800') or telefone_plausivel(t)]
+
+            # WhatsApp — regex restrito a 12-13 dígitos (55 + DDD + número), evita pegar lixo
+            whats = re.findall(r'(?:wa\.me/|api\.whatsapp\.com/send\?phone=)(\+?55\d{10,11})', texto)
             for numero in whats:
-                num = numero[-11:] if numero.startswith("55") else numero
-                if len(num) >= 10:
+                num = re.sub(r'\D', '', numero)
+                if num.startswith('55'):
+                    num = num[2:]
+                if telefone_plausivel(num):
                     ddd, resto = num[:2], num[2:]
                     telefones.append(f"({ddd}) {resto[:5]}-{resto[5:]}" if len(resto) == 9 else f"({ddd}) {resto[:4]}-{resto[4:]}")
         except Exception:
@@ -392,6 +451,7 @@ def buscar_lead():
                 novos_emails = re.findall(padrao_email, texto1)
                 emails_encontrados += [e.lower() for e in novos_emails if normalizar_texto(termo_busca)[:6] in normalizar_texto(e)]
                 novos_tel = re.findall(r'\(\d{2}\)\s?\d{4,5}-?\d{4}', texto1)
+                novos_tel = [t for t in novos_tel if telefone_plausivel(t)]
                 telefones_encontrados += novos_tel
 
                 if pode_usar("serpapi"):
