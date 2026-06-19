@@ -16,12 +16,11 @@
   .subtitle { margin-top: 10px; font-size: 15px; color: var(--muted); font-weight: 300; }
   .search-box { width: 100%; max-width: 580px; margin-bottom: 24px; }
   .field-label { font-family: var(--mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; display: block; }
-  .input-row { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 6px 6px 6px 20px; margin-bottom: 14px; transition: border-color 0.2s; }
-  .input-row:focus-within { border-color: rgba(255,107,43,0.4); }
+  .input-row { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 6px 6px 6px 20px; margin-bottom: 14px; }
   .input-row input { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 15px; color: var(--text); padding: 10px 0; }
   .input-row textarea { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 14px; color: var(--text); padding: 10px 0; resize: none; min-height: 20px; max-height: 80px; }
   .input-row input::placeholder, .input-row textarea::placeholder { color: var(--muted2); }
-  .btn-buscar { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 13px 24px; font-family: var(--sans); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-buscar { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 13px 24px; font-family: var(--sans); font-size: 14px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .btn-buscar:hover { background: var(--accent2); }
   .btn-buscar:disabled { opacity: 0.5; cursor: not-allowed; }
   .hint { font-size: 12px; color: var(--muted2); margin-top: 10px; text-align: center; font-family: var(--mono); }
@@ -30,64 +29,50 @@
   .spinner { width: 36px; height: 36px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loader-text { font-family: var(--mono); font-size: 13px; color: var(--muted); }
-  .result-card { display: none; width: 100%; max-width: 580px; background: var(--surface); border: 1px solid var(--border2); border-radius: 16px; overflow: hidden; animation: slideUp 0.4s ease; }
+  .result-card { display: none; width: 100%; max-width: 580px; background: var(--surface); border: 1px solid var(--border2); border-radius: 16px; overflow: hidden; }
   .result-card.active { display: block; }
-  @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
   .card-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
   .empresa-nome { font-size: 18px; font-weight: 500; }
   .empresa-site { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-top: 2px; }
   .tag-ok { font-family: var(--mono); font-size: 11px; background: rgba(46,204,113,0.1); color: var(--green); border: 1px solid rgba(46,204,113,0.2); padding: 3px 10px; border-radius: 100px; white-space: nowrap; }
+  .tag-cache { font-family: var(--mono); font-size: 11px; background: rgba(232,179,57,0.1); color: var(--yellow); border: 1px solid rgba(232,179,57,0.2); padding: 3px 10px; border-radius: 100px; white-space: nowrap; margin-left: 6px; }
   .section { padding: 16px 24px; border-bottom: 1px solid var(--border); }
   .section:last-of-type { border-bottom: none; }
-  .section-title { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .section-title { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
   .item-list { display: flex; flex-direction: column; gap: 8px; }
   .item-novo { display: flex; align-items: center; justify-content: space-between; background: rgba(46,204,113,0.08); border: 1px solid rgba(46,204,113,0.2); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 14px; }
   .item-novo .badge-novo { font-size: 10px; background: var(--green); color: #0d0d0f; padding: 2px 8px; border-radius: 100px; font-weight: 600; }
   .item-conhecido { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); }
   .item-conhecido .badge-conhecido { font-size: 10px; background: var(--muted2); color: var(--text); padding: 2px 8px; border-radius: 100px; }
-  .item-email { font-family: var(--mono); font-size: 14px; padding: 8px 0; color: var(--text); }
+  .item-email { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; }
+  .item-email .depto-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; background: rgba(255,107,43,0.12); color: var(--accent); padding: 2px 8px; border-radius: 100px; }
+  .item-sugestao { display: flex; align-items: center; justify-content: space-between; background: transparent; border: 1px dashed var(--border2); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .item-sugestao .depto-tag-sug { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted2); }
   .empty-msg { font-style: italic; color: var(--muted2); font-size: 13px; }
-  .row { display: flex; align-items: flex-start; gap: 12px; padding: 4px 0; }
-  .row-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--surface2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; margin-top: 2px; }
-  .row-content { flex: 1; min-width: 0; }
-  .row-label { font-size: 10px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
-  .row-value { font-size: 14px; color: var(--text); word-break: break-word; line-height: 1.4; }
-  .row-value.nao-encontrado { color: var(--muted2); font-style: italic; }
-  .row-value a { color: var(--accent2); text-decoration: none; font-family: var(--mono); font-size: 13px; }
-  .row-value a:hover { text-decoration: underline; }
-  .selo-confirmar { display: inline-block; font-size: 9px; background: rgba(232,179,57,0.15); color: var(--yellow); border: 1px solid rgba(232,179,57,0.3); padding: 1px 6px; border-radius: 100px; margin-left: 6px; font-family: var(--mono); vertical-align: middle; }
   .aviso-extra { font-size: 11px; color: var(--muted2); margin-top: 8px; font-style: italic; }
-  .card-footer { padding: 14px 24px; background: var(--surface2); }
-  .fonte-item { font-size: 12px; font-family: var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .fonte-item a { color: var(--muted); text-decoration: none; }
-  .fonte-item a:hover { color: var(--accent2); }
+  .btn-nova { display: none; margin: 16px auto 0; background: none; border: 1px solid var(--border2); border-radius: 8px; padding: 8px 20px; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; }
+  .btn-nova.active { display: block; }
   .error-box { display: none; width: 100%; max-width: 580px; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.2); border-radius: 12px; padding: 16px 20px; font-family: var(--mono); font-size: 13px; color: var(--red); }
   .error-box.active { display: block; }
-  .btn-nova { display: none; margin: 16px auto 0; background: none; border: 1px solid var(--border2); border-radius: 8px; padding: 8px 20px; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; }
-  .btn-nova:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-nova.active { display: block; }
 </style>
 </head>
 <body>
 <div class="header">
   <div class="badge">⚡ Flash Benefícios — Enriquecimento</div>
-  <h1>Telefone, Email & <span>LinkedIn</span></h1>
-  <p class="subtitle">Compara com o que você já tem e mostra só o que é novo.</p>
+  <h1>Telefone, Email & <span>Departamento</span></h1>
+  <p class="subtitle">100% gratuito, sem APIs pagas. Compara com o que você já tem.</p>
 </div>
 <div class="search-box">
   <label class="field-label">Empresa, site ou CNPJ</label>
   <div class="input-row">
-    <input type="text" id="input-empresa" placeholder="Ex: Totvs, totvs.com ou 12.345.678/0001-90" autocomplete="off" />
+    <input type="text" id="input-empresa" placeholder="Ex: Totvs, totvs.com ou 12.345.678/0001-90" />
   </div>
   <label class="field-label">Números que você já tem (HubSpot) — opcional</label>
   <div class="input-row">
     <textarea id="input-numeros" placeholder="Cole aqui, um por linha ou separado por vírgula"></textarea>
   </div>
-  <button class="btn-buscar" id="btn-buscar" onclick="buscar()">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    Buscar novos contatos
-  </button>
-  <p class="hint">A Receita Federal é consultada automaticamente se você informar um CNPJ</p>
+  <button class="btn-buscar" id="btn-buscar" onclick="buscar()">Buscar contatos</button>
+  <p class="hint">CNPJ consulta direto a Receita Federal (BrasilAPI)</p>
 </div>
 <div class="loader" id="loader">
   <div class="spinner"></div>
@@ -96,61 +81,34 @@
 <div class="result-card" id="result-card">
   <div class="card-header">
     <div><div class="empresa-nome" id="r-empresa">—</div><div class="empresa-site" id="r-site">—</div></div>
-    <div class="tag-ok" id="r-tag">✓ Dados reais</div>
-  </div>
-  <div class="section" id="quota-apify-section" style="display:none; padding: 10px 24px; background: var(--surface2); border-bottom: 1px solid var(--border);">
-    <div style="font-family: var(--mono); font-size: 11px; color: var(--muted);">
-      🔎 Busca avançada (Apify) usada nesta consulta: <span id="quota-usado-aviso" style="color: var(--yellow);"></span><br>
-      Uso este mês: <span id="quota-texto"></span>
-    </div>
+    <div><span class="tag-ok" id="r-tag">✓ Dados reais</span><span class="tag-cache" id="r-cache-tag" style="display:none">⚡ Do cache</span></div>
   </div>
   <div class="section">
-    <div class="section-title">📱 Telefones novos (diferentes do HubSpot)</div>
+    <div class="section-title">📱 Telefones novos</div>
     <div class="item-list" id="r-telefones-novos"></div>
   </div>
   <div class="section">
-    <div class="section-title">🔁 Telefones já conhecidos (encontrados de novo)</div>
+    <div class="section-title">🔁 Telefones já conhecidos</div>
     <div class="item-list" id="r-telefones-conhecidos"></div>
   </div>
   <div class="section">
-    <div class="section-title">📧 Emails encontrados</div>
+    <div class="section-title">📧 Emails confirmados</div>
     <div class="item-list" id="r-emails"></div>
   </div>
   <div class="section">
-    <div class="section-title">🔗 LinkedIn empresa</div>
-    <div class="row-value" id="r-li-empresa">—</div>
+    <div class="section-title">💡 Sugestões de formato (não confirmados)</div>
+    <div class="item-list" id="r-sugestoes"></div>
+    <div class="aviso-extra">Esses são palpites baseados no domínio — confirme antes de usar.</div>
   </div>
   <div class="section">
-    <div class="section-title">👤 Possível RH <span class="selo-confirmar">a confirmar</span></div>
-    <div class="row-value" id="r-li-rh">—</div>
-  </div>
-  <div class="section">
-    <div class="section-title">💰 Possível Financeiro <span class="selo-confirmar">a confirmar</span></div>
-    <div class="row-value" id="r-li-fin">—</div>
-    <div class="aviso-extra">Campos com "a confirmar" são pistas, não certezas — confira no LinkedIn antes de usar.</div>
-  </div>
-  <div class="card-footer">
-    <div class="section-title">Fontes consultadas</div>
-    <div id="r-fontes"></div>
+    <div class="section-title">👥 Sócios (via Receita Federal)</div>
+    <div class="item-list" id="r-socios"></div>
   </div>
 </div>
 <div class="error-box" id="error-box"></div>
 <button class="btn-nova" id="btn-nova" onclick="novaBusca()">+ Nova busca</button>
 <script>
-function setLinkedinVal(id, val, url) {
-  const el = document.getElementById(id);
-  const nao = !val || val.toLowerCase().includes('não encontrado');
-  if (nao) {
-    el.textContent = 'Não encontrado em fonte pública';
-    el.className = 'row-value nao-encontrado';
-  } else if (url) {
-    el.innerHTML = `${val} — <a href="${url}" target="_blank">ver perfil</a>`;
-    el.className = 'row-value';
-  } else {
-    el.textContent = val;
-    el.className = 'row-value';
-  }
-}
+const NOMES_DEPTO = { financeiro: 'Financeiro', rh: 'RH', compras: 'Compras', comercial: 'Comercial', geral: 'Geral' };
 
 async function buscar() {
   const empresa = document.getElementById('input-empresa').value.trim();
@@ -178,69 +136,33 @@ async function buscar() {
     } else {
       document.getElementById('r-empresa').textContent = data.empresa;
       document.getElementById('r-site').textContent = data.site;
-      document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Validado via Receita Federal' : '✓ Dados públicos';
+      document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Validado via Receita' : '✓ Dados públicos';
+      document.getElementById('r-cache-tag').style.display = data.veio_do_cache ? 'inline-block' : 'none';
 
       const novosEl = document.getElementById('r-telefones-novos');
-      novosEl.innerHTML = '';
-      if (data.telefones_novos.length === 0) {
-        novosEl.innerHTML = '<div class="empty-msg">Nenhum telefone novo encontrado</div>';
-      } else {
-        data.telefones_novos.forEach(t => {
-          const d = document.createElement('div');
-          d.className = 'item-novo';
-          d.innerHTML = `<span>${t}</span><span class="badge-novo">NOVO</span>`;
-          novosEl.appendChild(d);
-        });
-      }
+      novosEl.innerHTML = data.telefones_novos.length === 0
+        ? '<div class="empty-msg">Nenhum telefone novo</div>'
+        : data.telefones_novos.map(t => `<div class="item-novo"><span>${t}</span><span class="badge-novo">NOVO</span></div>`).join('');
 
       const conhecidosEl = document.getElementById('r-telefones-conhecidos');
-      conhecidosEl.innerHTML = '';
-      if (data.telefones_ja_conhecidos.length === 0) {
-        conhecidosEl.innerHTML = '<div class="empty-msg">Nenhum repetido</div>';
-      } else {
-        data.telefones_ja_conhecidos.forEach(t => {
-          const d = document.createElement('div');
-          d.className = 'item-conhecido';
-          d.innerHTML = `<span>${t}</span><span class="badge-conhecido">JÁ TEM</span>`;
-          conhecidosEl.appendChild(d);
-        });
-      }
+      conhecidosEl.innerHTML = data.telefones_ja_conhecidos.length === 0
+        ? '<div class="empty-msg">Nenhum repetido</div>'
+        : data.telefones_ja_conhecidos.map(t => `<div class="item-conhecido"><span>${t}</span><span class="badge-conhecido">JÁ TEM</span></div>`).join('');
 
       const emailsEl = document.getElementById('r-emails');
-      emailsEl.innerHTML = '';
-      if (data.emails.length === 0) {
-        emailsEl.innerHTML = '<div class="empty-msg">Não encontrado em fonte pública</div>';
-      } else {
-        data.emails.forEach(e => {
-          const d = document.createElement('div');
-          d.className = 'item-email';
-          d.textContent = e;
-          emailsEl.appendChild(d);
-        });
-      }
+      emailsEl.innerHTML = (!data.emails || data.emails.length === 0)
+        ? '<div class="empty-msg">Não encontrado em fonte pública</div>'
+        : data.emails.map(e => `<div class="item-email"><span>${e.email}</span><span class="depto-tag">${NOMES_DEPTO[e.departamento] || e.departamento}</span></div>`).join('');
 
-      setLinkedinVal('r-li-empresa', data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
-      setLinkedinVal('r-li-rh', data.linkedin_rh, data.linkedin_rh_url);
-      setLinkedinVal('r-li-fin', data.linkedin_financeiro, data.linkedin_financeiro_url);
+      const sugEl = document.getElementById('r-sugestoes');
+      sugEl.innerHTML = (!data.emails_sugeridos || data.emails_sugeridos.length === 0)
+        ? '<div class="empty-msg">Sem sugestões disponíveis</div>'
+        : data.emails_sugeridos.map(s => `<div class="item-sugestao"><span>${s.email_sugerido}</span><span class="depto-tag-sug">${NOMES_DEPTO[s.departamento] || s.departamento}</span></div>`).join('');
 
-      if (data.apify_limite_mes !== undefined) {
-        document.getElementById('quota-apify-section').style.display = 'block';
-        document.getElementById('quota-usado-aviso').textContent = data.apify_usado_nesta_busca ? 'Sim' : 'Não (achou de graça)';
-        document.getElementById('quota-texto').textContent = `${data.apify_usos_no_mes} / ${data.apify_limite_mes}`;
-      }
-
-      const fontesEl = document.getElementById('r-fontes');
-      fontesEl.innerHTML = '';
-      (data.fontes || []).slice(0, 5).forEach(f => {
-        const d = document.createElement('div');
-        d.className = 'fonte-item';
-        if (f.startsWith('http')) {
-          d.innerHTML = `<a href="${f}" target="_blank">${f}</a>`;
-        } else {
-          d.textContent = f;
-        }
-        fontesEl.appendChild(d);
-      });
+      const sociosEl = document.getElementById('r-socios');
+      sociosEl.innerHTML = (!data.socios || data.socios.length === 0)
+        ? '<div class="empty-msg">Não disponível (informe um CNPJ)</div>'
+        : data.socios.map(s => `<div class="item-conhecido"><span>${s}</span></div>`).join('');
 
       document.getElementById('result-card').classList.add('active');
     }
@@ -262,9 +184,7 @@ function novaBusca() {
   document.getElementById('input-empresa').focus();
 }
 
-document.getElementById('input-empresa').addEventListener('keydown', e => {
-  if (e.key === 'Enter') buscar();
-});
+document.getElementById('input-empresa').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
 </script>
 </body>
 </html>
