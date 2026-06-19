@@ -3,65 +3,109 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Enriquecimento de Contatos</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<title>Enriquecimento de Contatos — Flash</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root { --bg: #0d0d0f; --surface: #16161a; --surface2: #1e1e24; --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12); --accent: #ff6b2b; --accent2: #ff9a5c; --text: #f0ede8; --muted: #888; --muted2: #555; --green: #2ecc71; --yellow: #e8b339; --red: #e74c3c; --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif; }
-  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 20px; }
-  .header { text-align: center; margin-bottom: 40px; }
-  .badge { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.15em; color: var(--accent); border: 1px solid rgba(255,107,43,0.3); padding: 4px 12px; border-radius: 100px; margin-bottom: 20px; text-transform: uppercase; }
-  h1 { font-size: 34px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.2; }
-  h1 span { color: var(--accent); font-weight: 500; }
-  .subtitle { margin-top: 10px; font-size: 15px; color: var(--muted); font-weight: 300; }
-  .search-box { width: 100%; max-width: 580px; margin-bottom: 24px; }
-  .field-label { font-family: var(--mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; display: block; }
-  .input-row { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 6px 6px 6px 20px; margin-bottom: 14px; }
-  .input-row input { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 15px; color: var(--text); padding: 10px 0; }
-  .input-row textarea { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 14px; color: var(--text); padding: 10px 0; resize: none; min-height: 20px; max-height: 80px; }
+  :root {
+    --flash-pink: #FF1B7C;
+    --flash-pink-dark: #C2125A;
+    --flash-purple: #5B1A40;
+    --bg: #FFFFFF;
+    --surface: #FFFFFF;
+    --surface2: #FFF1F7;
+    --border: #FFD6E8;
+    --border2: #FFB8D9;
+    --text: #1A1A1A;
+    --muted: #7A6B73;
+    --muted2: #B89AAA;
+    --green: #1FAA59;
+    --yellow: #C28A00;
+    --red: #D63060;
+    --sans: 'Inter', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 0 0 60px; }
+
+  .topbar { width: 100%; background: var(--flash-pink); padding: 18px 20px; display: flex; justify-content: center; margin-bottom: 48px; }
+  .topbar-inner { width: 100%; max-width: 580px; display: flex; align-items: center; gap: 10px; }
+  .logo-flash { color: #fff; font-weight: 800; font-size: 20px; letter-spacing: -0.02em; }
+  .logo-flash span { font-weight: 400; opacity: 0.85; font-size: 13px; margin-left: 4px; }
+
+  .header { text-align: center; margin-bottom: 36px; padding: 0 20px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--flash-pink-dark); background: var(--surface2); border: 1px solid var(--border2); padding: 5px 14px; border-radius: 100px; margin-bottom: 18px; text-transform: uppercase; }
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; color: var(--text); }
+  h1 span { color: var(--flash-pink); }
+  .subtitle { margin-top: 10px; font-size: 15px; color: var(--muted); font-weight: 400; }
+
+  .search-box { width: 100%; max-width: 580px; padding: 0 20px; margin-bottom: 24px; }
+  .field-label { font-size: 12px; font-weight: 700; color: var(--flash-pink-dark); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
+  .input-row { display: flex; gap: 10px; background: #fff; border: 2px solid var(--border); border-radius: 14px; padding: 4px 4px 4px 18px; margin-bottom: 16px; transition: border-color 0.15s; }
+  .input-row:focus-within { border-color: var(--flash-pink); }
+  .input-row input { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 15px; color: var(--text); padding: 12px 0; }
+  .input-row textarea { flex: 1; background: none; border: none; outline: none; font-family: var(--sans); font-size: 14px; color: var(--text); padding: 12px 0; resize: none; min-height: 20px; max-height: 80px; }
   .input-row input::placeholder, .input-row textarea::placeholder { color: var(--muted2); }
-  .btn-buscar { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 13px 24px; font-family: var(--sans); font-size: 14px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
-  .btn-buscar:hover { background: var(--accent2); }
+  .btn-buscar { width: 100%; background: var(--flash-pink); color: #fff; border: none; border-radius: 12px; padding: 15px 24px; font-family: var(--sans); font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .btn-buscar:hover { background: var(--flash-pink-dark); }
   .btn-buscar:disabled { opacity: 0.5; cursor: not-allowed; }
-  .hint { font-size: 12px; color: var(--muted2); margin-top: 10px; text-align: center; font-family: var(--mono); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center; }
+
   .loader { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 48px; width: 100%; max-width: 580px; }
   .loader.active { display: flex; }
-  .spinner { width: 36px; height: 36px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--flash-pink); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loader-text { font-family: var(--mono); font-size: 13px; color: var(--muted); }
-  .result-card { display: none; width: 100%; max-width: 580px; background: var(--surface); border: 1px solid var(--border2); border-radius: 16px; overflow: hidden; }
+  .loader-text { font-size: 13px; color: var(--muted); }
+
+  .result-card { display: none; width: calc(100% - 40px); max-width: 580px; background: #fff; border: 2px solid var(--border); border-radius: 18px; overflow: hidden; box-shadow: 0 4px 24px rgba(255,27,124,0.08); }
   .result-card.active { display: block; }
-  .card-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-  .empresa-nome { font-size: 18px; font-weight: 500; }
-  .empresa-site { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-top: 2px; }
-  .tag-ok { font-family: var(--mono); font-size: 11px; background: rgba(46,204,113,0.1); color: var(--green); border: 1px solid rgba(46,204,113,0.2); padding: 3px 10px; border-radius: 100px; white-space: nowrap; }
-  .tag-cache { font-family: var(--mono); font-size: 11px; background: rgba(232,179,57,0.1); color: var(--yellow); border: 1px solid rgba(232,179,57,0.2); padding: 3px 10px; border-radius: 100px; white-space: nowrap; margin-left: 6px; }
-  .section { padding: 16px 24px; border-bottom: 1px solid var(--border); }
+
+  .card-header { padding: 22px 24px; background: var(--flash-pink); display: flex; align-items: center; justify-content: space-between; }
+  .empresa-nome { font-size: 19px; font-weight: 800; color: #fff; }
+  .empresa-site { font-size: 12px; color: rgba(255,255,255,0.85); margin-top: 2px; }
+  .tag-ok { font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; border-radius: 100px; white-space: nowrap; }
+  .tag-cache { font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; border-radius: 100px; white-space: nowrap; margin-left: 6px; }
+
+  .niveis-bar { padding: 10px 24px; background: var(--flash-purple); }
+  .niveis-bar-text { font-size: 11px; color: rgba(255,255,255,0.9); }
+  .niveis-bar-text span { color: #FFD1E8; font-weight: 600; }
+  .quotas-text { font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 4px; }
+
+  .section { padding: 18px 24px; border-bottom: 1px solid var(--border); }
   .section:last-of-type { border-bottom: none; }
-  .section-title { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .section-title { font-size: 11px; font-weight: 700; color: var(--flash-pink-dark); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+
   .item-list { display: flex; flex-direction: column; gap: 8px; }
-  .item-novo { display: flex; align-items: center; justify-content: space-between; background: rgba(46,204,113,0.08); border: 1px solid rgba(46,204,113,0.2); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 14px; }
-  .item-novo .badge-novo { font-size: 10px; background: var(--green); color: #0d0d0f; padding: 2px 8px; border-radius: 100px; font-weight: 600; }
-  .item-conhecido { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); }
-  .item-conhecido .badge-conhecido { font-size: 10px; background: var(--muted2); color: var(--text); padding: 2px 8px; border-radius: 100px; }
-  .item-email { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; }
-  .item-email .depto-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; background: rgba(255,107,43,0.12); color: var(--accent); padding: 2px 8px; border-radius: 100px; }
-  .item-sugestao { display: flex; align-items: center; justify-content: space-between; background: transparent; border: 1px dashed var(--border2); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); }
-  .item-sugestao .depto-tag-sug { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted2); }
+  .item-novo { display: flex; align-items: center; justify-content: space-between; background: #F0FBF4; border: 1px solid #BCEBC9; border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+  .item-novo .badge-novo { font-size: 10px; background: var(--green); color: #fff; padding: 2px 9px; border-radius: 100px; font-weight: 700; }
+  .item-conhecido { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+  .item-conhecido .badge-conhecido { font-size: 10px; background: var(--muted2); color: #fff; padding: 2px 9px; border-radius: 100px; }
+  .item-email { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+  .item-email .depto-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: var(--flash-pink); color: #fff; padding: 3px 9px; border-radius: 100px; }
+  .item-sugestao { display: flex; align-items: center; justify-content: space-between; background: transparent; border: 1.5px dashed var(--border2); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+  .item-sugestao .depto-tag-sug { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted2); font-weight: 600; }
   .empty-msg { font-style: italic; color: var(--muted2); font-size: 13px; }
   .aviso-extra { font-size: 11px; color: var(--muted2); margin-top: 8px; font-style: italic; }
-  .btn-nova { display: none; margin: 16px auto 0; background: none; border: 1px solid var(--border2); border-radius: 8px; padding: 8px 20px; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; }
+
+  .btn-nova { display: none; margin: 16px auto 0; background: #fff; border: 2px solid var(--border2); border-radius: 10px; padding: 10px 22px; font-size: 13px; font-weight: 600; color: var(--flash-pink-dark); cursor: pointer; }
   .btn-nova.active { display: block; }
-  .error-box { display: none; width: 100%; max-width: 580px; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.2); border-radius: 12px; padding: 16px 20px; font-family: var(--mono); font-size: 13px; color: var(--red); }
+  .btn-nova:hover { background: var(--surface2); }
+
+  .error-box { display: none; width: calc(100% - 40px); max-width: 580px; background: #FFF0F3; border: 2px solid #FFC2D1; border-radius: 14px; padding: 16px 20px; font-size: 13px; color: var(--red); font-weight: 500; }
   .error-box.active { display: block; }
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="badge">⚡ Flash Benefícios — Enriquecimento</div>
-  <h1>Telefone, Email & <span>Departamento</span></h1>
-  <p class="subtitle">100% gratuito, sem APIs pagas. Compara com o que você já tem.</p>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-flash">flash <span>Inteligência Comercial</span></div>
+  </div>
 </div>
+
+<div class="header">
+  <div class="badge">⚡ Enriquecimento de Leads</div>
+  <h1>Telefone, Email & <span>Departamento</span></h1>
+  <p class="subtitle">Compara com o que você já tem no HubSpot.</p>
+</div>
+
 <div class="search-box">
   <label class="field-label">Empresa, site ou CNPJ</label>
   <div class="input-row">
@@ -74,20 +118,20 @@
   <button class="btn-buscar" id="btn-buscar" onclick="buscar()">Buscar contatos</button>
   <p class="hint">CNPJ consulta direto a Receita Federal (BrasilAPI)</p>
 </div>
+
 <div class="loader" id="loader">
   <div class="spinner"></div>
   <p class="loader-text">Consultando fontes oficiais...</p>
 </div>
+
 <div class="result-card" id="result-card">
   <div class="card-header">
     <div><div class="empresa-nome" id="r-empresa">—</div><div class="empresa-site" id="r-site">—</div></div>
-    <div><span class="tag-ok" id="r-tag">✓ Dados reais</span><span class="tag-cache" id="r-cache-tag" style="display:none">⚡ Do cache</span></div>
+    <div><span class="tag-ok" id="r-tag">✓ Dados reais</span><span class="tag-cache" id="r-cache-tag" style="display:none">⚡ Cache</span></div>
   </div>
-  <div class="section" id="niveis-section" style="padding: 10px 24px; background: var(--surface2); border-bottom: 1px solid var(--border);">
-    <div style="font-family: var(--mono); font-size: 11px; color: var(--muted);">
-      🔎 Fontes usadas nesta busca: <span id="niveis-usados" style="color: var(--accent2);"></span>
-    </div>
-    <div style="font-family: var(--mono); font-size: 10px; color: var(--muted2); margin-top: 6px;" id="quotas-texto"></div>
+  <div class="niveis-bar">
+    <div class="niveis-bar-text">🔎 Fontes usadas: <span id="niveis-usados"></span></div>
+    <div class="quotas-text" id="quotas-texto"></div>
   </div>
   <div class="section">
     <div class="section-title">📱 Telefones novos</div>
@@ -104,17 +148,40 @@
   <div class="section">
     <div class="section-title">💡 Sugestões de formato (não confirmados)</div>
     <div class="item-list" id="r-sugestoes"></div>
-    <div class="aviso-extra">Esses são palpites baseados no domínio — confirme antes de usar.</div>
+    <div class="aviso-extra">Palpites baseados no domínio — confirme antes de usar.</div>
   </div>
   <div class="section">
-    <div class="section-title">👥 Sócios (via Receita Federal)</div>
+    <div class="section-title">🔗 LinkedIn empresa</div>
+    <div class="item-list" id="r-li-empresa-wrap"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">👤 Possível RH</div>
+    <div class="item-list" id="r-li-rh-wrap"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">💰 Possível Financeiro</div>
+    <div class="item-list" id="r-li-fin-wrap"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">👥 Sócios (Receita Federal)</div>
     <div class="item-list" id="r-socios"></div>
   </div>
 </div>
+
 <div class="error-box" id="error-box"></div>
 <button class="btn-nova" id="btn-nova" onclick="novaBusca()">+ Nova busca</button>
+
 <script>
 const NOMES_DEPTO = { financeiro: 'Financeiro', rh: 'RH', compras: 'Compras', comercial: 'Comercial', geral: 'Geral' };
+const NOMES_NIVEL = { gratuito: 'Gratuito', serpapi: 'SerpAPI', apify: 'Apify' };
+
+function linkOuTexto(valor, url) {
+  const nao = !valor || valor.toLowerCase().includes('não encontrado');
+  if (nao) return '<div class="empty-msg">Não encontrado em fonte pública</div>';
+  if (url) return `<div class="item-conhecido"><span>${valor}</span></div><a href="${url}" target="_blank" style="font-size:12px;color:var(--flash-pink-dark);font-weight:600;">Ver perfil →</a>`;
+  if (valor.startsWith('http')) return `<a href="${valor}" target="_blank" style="font-size:13px;color:var(--flash-pink-dark);font-weight:600;">${valor}</a>`;
+  return `<div class="item-conhecido"><span>${valor}</span></div>`;
+}
 
 async function buscar() {
   const empresa = document.getElementById('input-empresa').value.trim();
@@ -142,42 +209,35 @@ async function buscar() {
     } else {
       document.getElementById('r-empresa').textContent = data.empresa;
       document.getElementById('r-site').textContent = data.site;
-      document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Validado via Receita' : '✓ Dados públicos';
+      document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Receita Federal' : '✓ Dados públicos';
       document.getElementById('r-cache-tag').style.display = data.veio_do_cache ? 'inline-block' : 'none';
 
-      const NOMES_NIVEL = { gratuito: 'Gratuito (BrasilAPI + site)', serpapi: 'SerpAPI', apify: 'Apify' };
-      document.getElementById('niveis-usados').textContent = (data.niveis_usados || ['gratuito'])
-        .map(n => NOMES_NIVEL[n] || n).join(' → ');
-
+      document.getElementById('niveis-usados').textContent = (data.niveis_usados || ['gratuito']).map(n => NOMES_NIVEL[n] || n).join(' → ');
       if (data.quotas) {
-        const partes = Object.entries(data.quotas).map(([fonte, q]) =>
-          `${NOMES_NIVEL[fonte] || fonte}: ${q.usos}/${q.limite}`
-        );
-        document.getElementById('quotas-texto').textContent = 'Cota do mês — ' + partes.join(' · ');
+        document.getElementById('quotas-texto').textContent = 'Cota do mês — ' + Object.entries(data.quotas).map(([f, q]) => `${NOMES_NIVEL[f] || f}: ${q.usos}/${q.limite}`).join(' · ');
       }
 
-      const novosEl = document.getElementById('r-telefones-novos');
-      novosEl.innerHTML = data.telefones_novos.length === 0
+      document.getElementById('r-telefones-novos').innerHTML = data.telefones_novos.length === 0
         ? '<div class="empty-msg">Nenhum telefone novo</div>'
         : data.telefones_novos.map(t => `<div class="item-novo"><span>${t}</span><span class="badge-novo">NOVO</span></div>`).join('');
 
-      const conhecidosEl = document.getElementById('r-telefones-conhecidos');
-      conhecidosEl.innerHTML = data.telefones_ja_conhecidos.length === 0
+      document.getElementById('r-telefones-conhecidos').innerHTML = data.telefones_ja_conhecidos.length === 0
         ? '<div class="empty-msg">Nenhum repetido</div>'
         : data.telefones_ja_conhecidos.map(t => `<div class="item-conhecido"><span>${t}</span><span class="badge-conhecido">JÁ TEM</span></div>`).join('');
 
-      const emailsEl = document.getElementById('r-emails');
-      emailsEl.innerHTML = (!data.emails || data.emails.length === 0)
+      document.getElementById('r-emails').innerHTML = (!data.emails || data.emails.length === 0)
         ? '<div class="empty-msg">Não encontrado em fonte pública</div>'
         : data.emails.map(e => `<div class="item-email"><span>${e.email}</span><span class="depto-tag">${NOMES_DEPTO[e.departamento] || e.departamento}</span></div>`).join('');
 
-      const sugEl = document.getElementById('r-sugestoes');
-      sugEl.innerHTML = (!data.emails_sugeridos || data.emails_sugeridos.length === 0)
+      document.getElementById('r-sugestoes').innerHTML = (!data.emails_sugeridos || data.emails_sugeridos.length === 0)
         ? '<div class="empty-msg">Sem sugestões disponíveis</div>'
         : data.emails_sugeridos.map(s => `<div class="item-sugestao"><span>${s.email_sugerido}</span><span class="depto-tag-sug">${NOMES_DEPTO[s.departamento] || s.departamento}</span></div>`).join('');
 
-      const sociosEl = document.getElementById('r-socios');
-      sociosEl.innerHTML = (!data.socios || data.socios.length === 0)
+      document.getElementById('r-li-empresa-wrap').innerHTML = linkOuTexto(data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
+      document.getElementById('r-li-rh-wrap').innerHTML = linkOuTexto(data.linkedin_rh, data.linkedin_rh_url);
+      document.getElementById('r-li-fin-wrap').innerHTML = linkOuTexto(data.linkedin_financeiro, data.linkedin_financeiro_url);
+
+      document.getElementById('r-socios').innerHTML = (!data.socios || data.socios.length === 0)
         ? '<div class="empty-msg">Não disponível (informe um CNPJ)</div>'
         : data.socios.map(s => `<div class="item-conhecido"><span>${s}</span></div>`).join('');
 
