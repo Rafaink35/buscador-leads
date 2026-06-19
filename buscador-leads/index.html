@@ -83,6 +83,12 @@
     <div><div class="empresa-nome" id="r-empresa">—</div><div class="empresa-site" id="r-site">—</div></div>
     <div><span class="tag-ok" id="r-tag">✓ Dados reais</span><span class="tag-cache" id="r-cache-tag" style="display:none">⚡ Do cache</span></div>
   </div>
+  <div class="section" id="niveis-section" style="padding: 10px 24px; background: var(--surface2); border-bottom: 1px solid var(--border);">
+    <div style="font-family: var(--mono); font-size: 11px; color: var(--muted);">
+      🔎 Fontes usadas nesta busca: <span id="niveis-usados" style="color: var(--accent2);"></span>
+    </div>
+    <div style="font-family: var(--mono); font-size: 10px; color: var(--muted2); margin-top: 6px;" id="quotas-texto"></div>
+  </div>
   <div class="section">
     <div class="section-title">📱 Telefones novos</div>
     <div class="item-list" id="r-telefones-novos"></div>
@@ -138,6 +144,17 @@ async function buscar() {
       document.getElementById('r-site').textContent = data.site;
       document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Validado via Receita' : '✓ Dados públicos';
       document.getElementById('r-cache-tag').style.display = data.veio_do_cache ? 'inline-block' : 'none';
+
+      const NOMES_NIVEL = { gratuito: 'Gratuito (BrasilAPI + site)', serpapi: 'SerpAPI', apify: 'Apify' };
+      document.getElementById('niveis-usados').textContent = (data.niveis_usados || ['gratuito'])
+        .map(n => NOMES_NIVEL[n] || n).join(' → ');
+
+      if (data.quotas) {
+        const partes = Object.entries(data.quotas).map(([fonte, q]) =>
+          `${NOMES_NIVEL[fonte] || fonte}: ${q.usos}/${q.limite}`
+        );
+        document.getElementById('quotas-texto').textContent = 'Cota do mês — ' + partes.join(' · ');
+      }
 
       const novosEl = document.getElementById('r-telefones-novos');
       novosEl.innerHTML = data.telefones_novos.length === 0
