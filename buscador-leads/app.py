@@ -110,24 +110,86 @@ def buscar_brasilapi(cnpj: str) -> dict:
 
 
 # ─── Fonte 2: scraping direto do site institucional, sem API paga ──────────
-def descobrir_site_por_busca_simples(empresa: str) -> str:
-    """Tenta adivinhar o domínio mais provável testando variações comuns,
-    sem depender de SerpAPI nem Google."""
-    slug = normalizar_texto(empresa)
-    candidatos = [
-        f"https://www.{slug}.com.br",
-        f"https://{slug}.com.br",
-        f"https://www.{slug}.com",
-        f"https://{slug}.com",
-    ]
-    for url in candidatos:
-        try:
-            r = requests.head(url, timeout=5, allow_redirects=True)
-            if r.status_code < 400:
-                return url
-        except Exception:
+def gerar_variacoes_slug(empresa: str) -> list:
+    """Gera várias hipóteses de slug a partir do nome da empresa,
+    incluindo só a primeira palavra (caso comum: 'Grunox Equipamentos' -> 'grunox')"""
+    palavras = re.sub(r'[^a-zA-Z0-9\s]', '', empresa).split()
+    palavras_uteis = [p for p in palavras if normalizar_texto(p) not in
+                      ['ltda', 'sa', 'eireli', 'me', 'epp', 'equipamentos', 'comercio',
+                       'industria', 'servicos', 'solucoes', 'grupo', 'brasil']]
+
+    slugs = []
+    if palavras_uteis:
+        slugs.append(normalizar_texto(palavras_uteis[0]))  # só a primeira palavra relevante
+    if len(palavras_uteis) >= 2:
+        slugs.append(normalizar_texto(palavras_uteis[0] + palavras_uteis[1]))  # duas primeiras
+    slugs.append(normalizar_texto(empresa))  # nome completo, por garantia
+
+    return list(dict.fromkeys(slugs))  # remove duplicatas mantendo ordem
+
+
+def descobrir_site_tentativa_direta(empresa: str) -> str:
+    """Tenta adivinhar o domínio testando várias hipóteses de slug, sem custo."""
+    for slug in gerar_variacoes_slug(empresa):
+        if len(slug) < 3:
             continue
+        candidatos = [
+            f"https://www.{slug}.com.br",
+            f"https://{slug}.com.br",
+            f"https://www.{slug}.com",
+            f"https://{slug}.com",
+        ]
+        for url in candidatos:
+            try:
+                r = requests.head(url, timeout=5, allow_redirects=True)
+                if r.status_code < 400:
+                    return url
+            except Exception:
+                continue
     return None
+
+
+def descobrir_site_via_duckduckgo(empresa: str) -> str:
+    """Fallback gratuito: busca o domínio via DuckDuckGo HTML (sem JS, sem chave, sem custo).
+    Usado só quando a tentativa direta de adivinhar o slug falha."""
+    try:
+        r = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": f"{empresa} site oficial"},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            timeout=10
+        )
+        if r.status_code != 200:
+            return None
+
+        links = re.findall(r'href="(https?://[^"]+)"', r.text)
+        bloqueados = ["duckduckgo.com", "linkedin.com", "facebook.com", "instagram.com",
+                      "youtube.com", "indeed.com", "glassdoor", "wikipedia.org",
+                      "google.com", "econodata", "cnpj", "consultas.plus", "datanyze"]
+
+        empresa_slug = normalizar_texto(empresa)
+        primeira_palavra = normalizar_texto(empresa.split()[0]) if empresa.split() else ""
+
+        for link in links:
+            link_norm = normalizar_texto(link)
+            if any(b in link.lower() for b in bloqueados):
+                continue
+            if primeira_palavra and len(primeira_palavra) >= 4 and primeira_palavra in link_norm:
+                dominio = re.match(r'https?://(?:www\.)?([^/]+)', link)
+                if dominio:
+                    return f"https://{dominio.group(1)}"
+        return None
+    except Exception:
+        return None
+
+
+def descobrir_site_por_busca_simples(empresa: str) -> str:
+    """Combina tentativa direta (rápida, sem custo) com fallback via DuckDuckGo
+    (também sem custo, mas mais lento) quando a primeira falha."""
+    site = descobrir_site_tentativa_direta(empresa)
+    if site:
+        return site
+    return descobrir_site_via_duckduckgo(empresa)
 
 
 PREFIXOS_DEPARTAMENTO = {
