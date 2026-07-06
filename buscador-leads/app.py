@@ -132,6 +132,106 @@ def classificar_email_por_departamento(email: str) -> str:
     return "geral"
 
 
+# ─── NOVO: validação de confiança (filtro anti-contador) ────────────────────
+# O cadastro da Receita é preenchido, na maioria das vezes, pelo contador da
+# empresa. E-mail/telefone declarados podem ser do escritório contábil, não
+# do lead. Estas funções classificam a confiança de cada dado antes de
+# entregá-lo ao BDR.
+
+PADROES_CONTADOR = [
+    "contab", "contabil", "contadores", "contador", "assessoria",
+    "escritorio", "fiscal", "tributar", "tributos", "bpo",
+    "consultoriacontabil", "accounting", "despachante", "certificadora",
+]
+
+DOMINIOS_GENERICOS = {
+    "gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "yahoo.com.br",
+    "uol.com.br", "bol.com.br", "terra.com.br", "ig.com.br", "globo.com",
+    "live.com", "msn.com", "icloud.com", "r7.com", "oi.com.br", "zipmail.com.br",
+}
+
+
+def extrair_dominio_de_url(url: str) -> str:
+    """https://www.empresa.com.br/contato -> empresa.com.br"""
+    if not url:
+        return ""
+    m = re.match(r'https?://(?:www\.)?([^/]+)', url.strip())
+    return m.group(1).lower() if m else url.strip().lower().replace("www.", "")
+
+
+def extrair_dominio_de_email(email: str) -> str:
+    return email.split("@")[-1].lower().strip() if "@" in email else ""
+
+
+def parece_contador(texto: str) -> bool:
+    """Detecta padrões de escritório contábil no e-mail inteiro ou domínio."""
+    t = normalizar_texto(texto)
+    return any(p in t for p in PADROES_CONTADOR)
+
+
+def avaliar_confianca_email(email: str, dominio_site: str, razao_social: str = "") -> dict:
+    """
+    Retorna {"nivel": "alta"|"media"|"baixa", "motivo": str, "possivel_contador": bool}
+
+    Regras (na ordem):
+    1. Padrão contábil no e-mail        -> baixa, possível contador
+    2. Domínio do e-mail == domínio site -> alta (é da própria empresa)
+    3. Domínio genérico (gmail, uol...)  -> media (pode ser da empresa pequena,
+                                            mas também do contador; não dá pra saber)
+    4. Domínio próprio != site           -> media (domínio corporativo, mas não
+                                            bate com o site conhecido — pode ser
+                                            grupo/holding ou terceiro)
+    5. Sem site descoberto p/ comparar   -> media se domínio próprio parecido com
+                                            a razão social, baixa caso contrário
+    """
+    dom_email = extrair_dominio_de_email(email)
+
+    if parece_contador(email):
+        return {"nivel": "baixa", "motivo": "padrão de escritório contábil no endereço",
+                "possivel_contador": True}
+
+    if dominio_site and dom_email == dominio_site:
+        return {"nivel": "alta", "motivo": "domínio bate com o site da empresa",
+                "possivel_contador": False}
+
+    if dom_email in DOMINIOS_GENERICOS:
+        return {"nivel": "media", "motivo": "domínio genérico — impossível confirmar dono",
+                "possivel_contador": False}
+
+    if dominio_site and dom_email != dominio_site:
+        # domínio corporativo, mas diferente do site: holding? contador com domínio neutro?
+        return {"nivel": "media", "motivo": f"domínio próprio ({dom_email}) difere do site ({dominio_site})",
+                "possivel_contador": False}
+
+    # sem site para comparar: usa semelhança com a razão social como heurística
+    if razao_social:
+        raiz = normalizar_texto(razao_social)[:6]
+        if raiz and raiz in normalizar_texto(dom_email):
+            return {"nivel": "media", "motivo": "domínio parecido com a razão social (site não confirmado)",
+                    "possivel_contador": False}
+
+    return {"nivel": "baixa", "motivo": "sem site para confirmar e domínio não bate com a razão social",
+            "possivel_contador": False}
+
+
+def avaliar_confianca_telefone(telefone: str, origem: str, telefones_site: list) -> dict:
+    """
+    Cross-check: telefone da Receita confirmado pelo site = alta.
+    Só da Receita = media (pode ser do contador, mas ligar ainda tem valor).
+    Só do site = alta (publicado pela própria empresa).
+    """
+    tel_norm = normalizar_telefone(telefone)
+    no_site = any(normalizar_telefone(t) == tel_norm for t in telefones_site)
+
+    if origem == "receita" and no_site:
+        return {"nivel": "alta", "motivo": "consta na Receita E no site da empresa"}
+    if origem == "site":
+        return {"nivel": "alta", "motivo": "publicado no site da própria empresa"}
+    if origem == "receita":
+        return {"nivel": "media", "motivo": "somente na Receita — pode ser do contador; se atender, pedir o contato da empresa"}
+    return {"nivel": "media", "motivo": f"origem: {origem}"}
+
+
 # ─── NÍVEL 0 — gratuito e ilimitado: BrasilAPI (Receita Federal) ────────────
 def buscar_brasilapi(cnpj: str) -> dict:
     cnpj_limpo = limpar_cnpj(cnpj)
@@ -419,24 +519,34 @@ def buscar_lead():
             linkedin_empresa, pessoa_rh, pessoa_fin = None, None, None
             niveis_usados = ["gratuito"]
 
+            # NOVO: rastreio de origem para o cálculo de confiança
+            razao_social = ""
+            email_receita, telefone_receita = None, None
+            telefones_site, emails_site = [], []
+
             # NÍVEL 0 — sempre tenta primeiro, sem custo
             if eh_cnpj(entrada):
                 dados = buscar_brasilapi(entrada)
                 if dados:
                     empresa_nome = dados.get("nome_fantasia") or entrada
+                    razao_social = dados.get("razao_social") or ""
                     fonte_receita = True
                     socios = dados.get("socios", [])
                     if dados.get("telefone"):
-                        telefones_encontrados.append(dados["telefone"])
+                        telefone_receita = dados["telefone"]
+                        telefones_encontrados.append(telefone_receita)
                     if dados.get("email"):
-                        emails_encontrados.append(dados["email"])
+                        email_receita = dados["email"].lower()
+                        emails_encontrados.append(email_receita)
 
             termo_busca = empresa_nome if empresa_nome != entrada else entrada
             site = descobrir_site(termo_busca)
             if site:
                 extra = extrair_emails_telefones_do_site(site)
-                emails_encontrados += extra["emails"]
-                telefones_encontrados += extra["telefones"]
+                emails_site = extra["emails"]
+                telefones_site = extra["telefones"]
+                emails_encontrados += emails_site
+                telefones_encontrados += telefones_site
 
             # NÍVEL 1 — só entra se faltou telefone OU email, e se ainda há cota
             precisa_mais = not telefones_encontrados or not emails_encontrados
@@ -486,15 +596,68 @@ def buscar_lead():
 
             telefones_encontrados = list(dict.fromkeys(telefones_encontrados))
             emails_encontrados = list(dict.fromkeys(emails_encontrados))
-            emails_classificados = [{"email": e, "departamento": classificar_email_por_departamento(e)} for e in emails_encontrados[:5]]
-            sugestoes = sugerir_emails_departamentais(site, emails_encontrados)
+
+            # ── NOVO: classificação de confiança ──────────────────────────
+            dominio_site = extrair_dominio_de_url(site) if site else ""
+
+            emails_classificados = []
+            emails_nao_verificados = []
+            for e in emails_encontrados[:8]:
+                confianca = avaliar_confianca_email(e, dominio_site, razao_social)
+                registro = {
+                    "email": e,
+                    "departamento": classificar_email_por_departamento(e),
+                    "confianca": confianca["nivel"],
+                    "motivo": confianca["motivo"],
+                    "possivel_contador": confianca["possivel_contador"],
+                    "origem": "receita_federal" if e == email_receita else ("site" if e in emails_site else "busca"),
+                }
+                # e-mail com padrão de contador NÃO entra na lista principal:
+                # cold email pra contador é buraco negro e queima sender reputation
+                if confianca["possivel_contador"]:
+                    emails_nao_verificados.append(registro)
+                else:
+                    emails_classificados.append(registro)
+
+            telefones_classificados = []
+            for t in telefones_encontrados[:5]:
+                if t == telefone_receita:
+                    origem = "receita"
+                elif t in telefones_site:
+                    origem = "site"
+                else:
+                    origem = "busca"
+                conf_tel = avaliar_confianca_telefone(t, origem, telefones_site)
+                telefones_classificados.append({
+                    "telefone": t,
+                    "origem": origem,
+                    "confianca": conf_tel["nivel"],
+                    "motivo": conf_tel["motivo"],
+                })
+
+            # telefone suspeito de contador (só na Receita + e-mail da Receita era de contador):
+            # rebaixa a confiança e deixa o alerta explícito pro BDR
+            receita_email_de_contador = email_receita and parece_contador(email_receita)
+            if receita_email_de_contador:
+                for tc in telefones_classificados:
+                    if tc["origem"] == "receita" and tc["confianca"] != "alta":
+                        tc["confianca"] = "baixa"
+                        tc["motivo"] = "cadastro da Receita aparenta ser do contador (e-mail contábil no mesmo registro)"
+
+            sugestoes = sugerir_emails_departamentais(site, [e["email"] for e in emails_classificados])
 
             nao_encontrado = "Não encontrado em fonte pública"
             resultado = {
                 "empresa": empresa_nome,
                 "site": site or nao_encontrado,
-                "telefones": telefones_encontrados[:5],
-                "emails": emails_classificados,
+                # formato antigo preservado (index.html continua funcionando):
+                "telefones": [tc["telefone"] for tc in telefones_classificados],
+                "emails": [{"email": ec["email"], "departamento": ec["departamento"]} for ec in emails_classificados],
+                # NOVOS campos com a camada de confiança:
+                "telefones_detalhe": telefones_classificados,
+                "emails_detalhe": emails_classificados,
+                "emails_nao_verificados": emails_nao_verificados,
+                "alerta_contador": bool(receita_email_de_contador or emails_nao_verificados),
                 "emails_sugeridos": sugestoes,
                 "socios": socios[:5],
                 "fonte_receita_federal": fonte_receita,
