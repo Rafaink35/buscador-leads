@@ -260,6 +260,61 @@ def buscar_brasilapi(cnpj: str) -> dict:
         return {}
 
 
+# ─── NÍVEL 0 — fallback gratuito: CNPJá open (mesma fonte Receita) ──────────
+# Mesmo dado da BrasilAPI (cadastro da Receita), então o risco de contador é
+# idêntico. Serve como redundância quando a BrasilAPI cai/limita, e captura
+# múltiplos telefones/e-mails quando declarados (a BrasilAPI só traz o 1º tel).
+# Limite do endpoint aberto: ~5 consultas/min, sem chave.
+def buscar_cnpja(cnpj: str) -> dict:
+    cnpj_limpo = limpar_cnpj(cnpj)
+    try:
+        r = requests.get(
+            f"https://open.cnpja.com/office/{cnpj_limpo}",
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            timeout=15
+        )
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        company = data.get("company", {}) or {}
+
+        telefones = []
+        for ph in (data.get("phones") or []):
+            area, numero = ph.get("area", ""), ph.get("number", "")
+            if area and numero:
+                tel = f"({area}) {numero[:5]}-{numero[5:]}" if len(numero) == 9 else f"({area}) {numero[:4]}-{numero[4:]}"
+                if telefone_plausivel(tel):
+                    telefones.append(tel)
+
+        emails = [e.get("address", "").lower() for e in (data.get("emails") or []) if e.get("address")]
+
+        addr = data.get("address", {}) or {}
+        return {
+            "razao_social": company.get("name"),
+            "nome_fantasia": data.get("alias") or company.get("name"),
+            "telefone": telefones[0] if telefones else None,
+            "telefones_extras": telefones[1:],
+            "email": emails[0] if emails else None,
+            "emails_extras": emails[1:],
+            "endereco": f"{addr.get('street', '')}, {addr.get('city', '')} - {addr.get('state', '')}",
+            "socios": [m.get("person", {}).get("name") for m in (company.get("members") or []) if m.get("person", {}).get("name")]
+        }
+    except Exception:
+        return {}
+
+
+def buscar_receita(cnpj: str) -> dict:
+    """Nível 0 com redundância: BrasilAPI primeiro, CNPJá se ela falhar."""
+    dados = buscar_brasilapi(cnpj)
+    if dados:
+        dados["fonte_cadastro"] = "brasilapi"
+        return dados
+    dados = buscar_cnpja(cnpj)
+    if dados:
+        dados["fonte_cadastro"] = "cnpja"
+    return dados
+
+
 # ─── NÍVEL 0 — gratuito: tentativa direta de domínio + DuckDuckGo ───────────
 def gerar_variacoes_slug(empresa: str) -> list:
     palavras = re.sub(r'[^a-zA-Z0-9\s]', '', empresa).split()
@@ -522,11 +577,12 @@ def buscar_lead():
             # NOVO: rastreio de origem para o cálculo de confiança
             razao_social = ""
             email_receita, telefone_receita = None, None
+            telefones_receita_extras, emails_receita_extras = [], []
             telefones_site, emails_site = [], []
 
             # NÍVEL 0 — sempre tenta primeiro, sem custo
             if eh_cnpj(entrada):
-                dados = buscar_brasilapi(entrada)
+                dados = buscar_receita(entrada)  # BrasilAPI com fallback CNPJá
                 if dados:
                     empresa_nome = dados.get("nome_fantasia") or entrada
                     razao_social = dados.get("razao_social") or ""
@@ -535,9 +591,16 @@ def buscar_lead():
                     if dados.get("telefone"):
                         telefone_receita = dados["telefone"]
                         telefones_encontrados.append(telefone_receita)
+                    # CNPJá pode trazer telefones/e-mails adicionais declarados
+                    for tel_extra in dados.get("telefones_extras", []):
+                        telefones_encontrados.append(tel_extra)
+                        telefones_receita_extras.append(tel_extra)
                     if dados.get("email"):
                         email_receita = dados["email"].lower()
                         emails_encontrados.append(email_receita)
+                    for em_extra in dados.get("emails_extras", []):
+                        emails_encontrados.append(em_extra.lower())
+                        emails_receita_extras.append(em_extra.lower())
 
             termo_busca = empresa_nome if empresa_nome != entrada else entrada
             site = descobrir_site(termo_busca)
@@ -610,7 +673,7 @@ def buscar_lead():
                     "confianca": confianca["nivel"],
                     "motivo": confianca["motivo"],
                     "possivel_contador": confianca["possivel_contador"],
-                    "origem": "receita_federal" if e == email_receita else ("site" if e in emails_site else "busca"),
+                    "origem": "receita_federal" if (e == email_receita or e in emails_receita_extras) else ("site" if e in emails_site else "busca"),
                 }
                 # e-mail com padrão de contador NÃO entra na lista principal:
                 # cold email pra contador é buraco negro e queima sender reputation
@@ -621,7 +684,7 @@ def buscar_lead():
 
             telefones_classificados = []
             for t in telefones_encontrados[:5]:
-                if t == telefone_receita:
+                if t == telefone_receita or t in telefones_receita_extras:
                     origem = "receita"
                 elif t in telefones_site:
                     origem = "site"
