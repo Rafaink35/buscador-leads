@@ -16,6 +16,8 @@ HUNTER_API_KEY = os.getenv("HUNTER_API_KEY")
 CLAY_API_KEY = os.getenv("CLAY_API_KEY")
 PHANTOMBUSTER_API_KEY = os.getenv("PHANTOMBUSTER_API_KEY")
 PHANTOMBUSTER_AGENT_ID = os.getenv("PHANTOMBUSTER_AGENT_ID")  # falta no .env — ver comentário em buscar_phantombuster_funcionarios
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
 
 CACHE_ARQUIVO = "cache_empresas.json"
 QUOTA_ARQUIVO = "quota_uso.json"
@@ -29,6 +31,7 @@ LIMITES_MES = {
     "hunter": 20,           # free tier real é 25/mês, deixamos margem
     "clay": 20,             # provisório até confirmar o plano contratado
     "phantombuster": 20,    # provisório — tem limite de slots simultâneos também, não tratado aqui ainda
+    "gemini": 40,            # dentro do tier gratuito real da API
 }
 
 
@@ -592,12 +595,14 @@ def sugerir_emails_departamentais(dominio: str, emails_confirmados: list) -> lis
 
 
 # ─── NÍVEL 1 — pago com cota: SerpAPI (busca real no Google) ────────────────
-def buscar_serpapi(query: str) -> list:
+def buscar_serpapi(query: str, hl: str = "pt", gl: str = "br") -> list:
     try:
-        r = requests.get("https://serpapi.com/search", params={
-            "q": query, "api_key": SERPAPI_KEY, "engine": "google",
-            "num": 5, "hl": "pt", "gl": "br"
-        }, timeout=15)
+        params = {"q": query, "api_key": SERPAPI_KEY, "engine": "google", "num": 5}
+        if hl:
+            params["hl"] = hl
+        if gl:
+            params["gl"] = gl
+        r = requests.get("https://serpapi.com/search", params=params, timeout=15)
         return r.json().get("organic_results", [])
     except Exception:
         return []
@@ -607,21 +612,91 @@ def texto_resultados(resultados: list) -> str:
     return " ".join([(r.get("title", "") + " " + r.get("snippet", "") + " " + r.get("link", "")) for r in resultados])
 
 
+def escolher_linkedin_via_gemini(resultados: list, empresa: str, papel: str) -> dict:
+    """Gemini só ESCOLHE entre candidatos que o SerpAPI já trouxe — nunca gera nem
+    completa dado por conta própria. Existe porque a checagem rígida por regex
+    (extrair_pessoa_linkedin) só olha os 2 primeiros resultados e exige o termo
+    exato no título, o que descarta candidatos válidos quando o Google varia a
+    ordem/redação dos resultados entre execuções."""
+    candidatos = [r for r in resultados if "linkedin.com/in/" in r.get("link", "")]
+    if not candidatos:
+        return None
+
+    lista = "\n".join(
+        f'{i+1}. link: {c["link"]}\n   titulo: {c.get("title", "")}\n   snippet: {c.get("snippet", "")}'
+        for i, c in enumerate(candidatos)
+    )
+    prompt = (
+        f'Destes resultados de busca, qual é o perfil do LinkedIn de uma pessoa que '
+        f'trabalha em "{empresa}" em cargo de {papel}?\n\n{lista}\n\n'
+        f'Responda APENAS com o link exato de um dos resultados acima, ou a palavra '
+        f'"nenhum" se não houver candidato claro. Nunca invente um link que não esteja na lista acima.'
+    )
+    try:
+        r = requests.post(GEMINI_URL, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 200,
+                                  "thinkingConfig": {"thinkingBudget": 0}}
+        }, timeout=20)
+        if r.status_code != 200:
+            return None
+        texto = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception:
+        return None
+
+    # trava anti-alucinação em código, não só no prompt: só aceita se o link
+    # devolvido bater literalmente com um dos candidatos que enviamos
+    escolhido = next((c for c in candidatos if c["link"].strip() in texto), None)
+    if not escolhido:
+        return None
+
+    titulo = escolhido.get("title", "")
+    partes = titulo.split(" | ")[0].split(" - ", 1)
+    nome = partes[0].strip()
+    cargo = partes[1].strip() if len(partes) > 1 else None
+    if not nome:
+        return None
+    return {"nome_cargo": f"{nome} - {cargo}" if cargo else nome, "linkedin": escolhido["link"],
+            "email": None, "telefone": None}
+
+
+def termo_relacao_empresa(empresa: str) -> str:
+    """Fragmento mais provável de aparecer num título/perfil de alguém falando
+    da empresa. Quando a entrada já vem como domínio (ex.: "blip.ai"), o sufixo
+    de TLD quase nunca é repetido por pessoas ("at Blip", não "at BlipAI") —
+    então removemos antes de normalizar, senão a comparação falha por completo."""
+    for tld in TLDS_TENTATIVA_DIRETA:
+        if empresa.lower().endswith(tld):
+            return normalizar_texto(empresa[:-len(tld)])
+    return normalizar_texto(empresa)
+
+
 def extrair_pessoa_linkedin(resultados: list, empresa: str, termos_cargo: list) -> dict:
-    for r in resultados:
+    # query simples e direta ("{cargo} {empresa} linkedin", sem aspas/operadores/site:)
+    # já bota o resultado certo nos primeiros lugares — o Google ranqueia bem esse tipo
+    # de busca. Por isso só olhamos os 2 primeiros resultados, e confiamos no TÍTULO
+    # (não no snippet, que o Google trunca de forma imprevisível) pra confirmar a
+    # empresa: o formato padrão do Google pra um perfil é "Nome - Cargo | Empresa",
+    # então o título já traz nome, cargo e empresa juntos de forma confiável.
+    # Validação leve de cargo também no título (não no snippet) — sem isso, qualquer
+    # pessoa nos 2 primeiros resultados vira "RH"/"Financeiro" mesmo sem ter nada a
+    # ver com a função (ex.: um CEO virando "Financeiro" só por aparecer na busca).
+    termo_empresa = termo_relacao_empresa(empresa)
+    for r in resultados[:2]:
         link = r.get("link", "")
         if "linkedin.com/in/" not in link:
             continue
-        titulo, snippet = r.get("title", ""), r.get("snippet", "")
-        texto_completo = f"{titulo} {snippet}"
-        if normalizar_texto(empresa) not in normalizar_texto(texto_completo):
+        titulo = r.get("title", "")
+        if termo_empresa not in normalizar_texto(titulo):
             continue
-        tem_cargo = any(normalizar_texto(t) in normalizar_texto(texto_completo) for t in termos_cargo)
-        if not tem_cargo:
+        if not any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_cargo):
             continue
-        nome = titulo.split(" - ")[0].split(" | ")[0].strip()
-        cargo_match = next((t for t in termos_cargo if normalizar_texto(t) in normalizar_texto(texto_completo)), None)
-        return {"nome_cargo": f"{nome} - {cargo_match}" if cargo_match else nome, "linkedin": link,
+        partes = titulo.split(" | ")[0].split(" - ", 1)
+        nome = partes[0].strip()
+        cargo = partes[1].strip() if len(partes) > 1 else None
+        if not nome:
+            continue
+        return {"nome_cargo": f"{nome} - {cargo}" if cargo else nome, "linkedin": link,
                 "email": None, "telefone": None}
     return None
 
@@ -832,8 +907,11 @@ def buscar_lead():
             razao_social = ""
             email_receita, telefone_receita = None, None
             telefones_site, emails_site = [], []
-            termos_rh = ["RH", "Recursos Humanos", "Gerente de RH", "Diretor de RH", "Head de RH"]
-            termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller"]
+            termos_rh = ["RH", "Recursos Humanos", "Gerente de RH", "Diretor de RH", "Head de RH",
+                         "HR", "Human Resources", "People", "People Ops", "Recruiter", "Talent",
+                         "Head of People", "Head of HR", "Head of Talent"]
+            termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller",
+                          "Chief Financial Officer", "Finance", "VP Finance", "Head of Finance"]
 
             # ═══ NÍVEL 0 — ReceitaWS/BrasilAPI/CNPJá + site oficial (grátis, sempre roda) ═══
             if eh_cnpj(entrada):
@@ -896,14 +974,26 @@ def buscar_lead():
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
-                    r_rh = buscar_serpapi(f'"{termo_busca}" (gerente OR diretor OR head) RH site:linkedin.com/in')
+                    # sem hl/gl: com hl=pt/gl=br o Google prioriza as páginas da própria
+                    # empresa em vez de perfis pessoais pra esse tipo de busca
+                    r_rh = buscar_serpapi(f'RH {termo_busca} linkedin', hl=None, gl=None)
                     registrar_uso("serpapi")
-                    pessoa_rh = extrair_pessoa_linkedin(r_rh, termo_busca, termos_rh)
+                    pessoa_rh = None
+                    if GEMINI_API_KEY and pode_usar("gemini"):
+                        pessoa_rh = escolher_linkedin_via_gemini(r_rh, termo_busca, "RH")
+                        registrar_uso("gemini")
+                    if not pessoa_rh:
+                        pessoa_rh = extrair_pessoa_linkedin(r_rh, termo_busca, termos_rh)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
-                    r_fin = buscar_serpapi(f'"{termo_busca}" (diretor OR gerente OR CFO) financeiro site:linkedin.com/in')
+                    r_fin = buscar_serpapi(f'financeiro {termo_busca} linkedin', hl=None, gl=None)
                     registrar_uso("serpapi")
-                    pessoa_fin = extrair_pessoa_linkedin(r_fin, termo_busca, termos_fin)
+                    pessoa_fin = None
+                    if GEMINI_API_KEY and pode_usar("gemini"):
+                        pessoa_fin = escolher_linkedin_via_gemini(r_fin, termo_busca, "Financeiro")
+                        registrar_uso("gemini")
+                    if not pessoa_fin:
+                        pessoa_fin = extrair_pessoa_linkedin(r_fin, termo_busca, termos_fin)
 
             # ═══ NÍVEL 2 — Apify (scraping de funcionários do LinkedIn) ═══
             if not dados_completos(pessoa_rh, pessoa_fin) and linkedin_empresa and pode_usar("apify"):
