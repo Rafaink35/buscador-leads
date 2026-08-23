@@ -26,9 +26,9 @@ CACHE_VALIDADE_DIAS = 30
 LIMITES_MES = {
     "serpapi": 90,          # plano free é 100/mês, deixamos 10 de colchão
     "apify": 40,            # dentro dos $5 grátis em créditos
-    "hunter": 20,           # free tier costuma ser 25/mês, deixamos margem
-    "clay": 90,             # ajuste conforme seu plano
-    "phantombuster": 20,    # execuções assíncronas — ajuste conforme seu plano
+    "hunter": 20,           # free tier real é 25/mês, deixamos margem
+    "clay": 20,             # provisório até confirmar o plano contratado
+    "phantombuster": 20,    # provisório — tem limite de slots simultâneos também, não tratado aqui ainda
 }
 
 
@@ -607,8 +607,8 @@ def buscar_apify_funcionarios(linkedin_empresa_url: str) -> list:
     try:
         url = "https://api.apify.com/v2/acts/apt_marble~linkedin-company-employees-scraper/run-sync-get-dataset-items"
         r = requests.post(url, params={"token": APIFY_TOKEN},
-                           json={"companies": [linkedin_empresa_url]}, timeout=90)
-        return r.json() if r.status_code == 200 else []
+                           json={"companyUrls": [linkedin_empresa_url]}, timeout=90)
+        return r.json() if r.status_code in (200, 201) else []
     except Exception:
         return []
 
@@ -673,10 +673,14 @@ def buscar_clay_email(nome_completo: str, dominio: str, empresa: str = "") -> di
         if r.status_code != 200:
             return {}
         dados = r.json() or {}
-        email = (dados.get("email") or dados.get("data", {}).get("email") or "").lower()
+        bloco = dados.get("data") or dados
+        email = (bloco.get("email") or "").lower()
         if not email:
             return {}
-        return {"email": email}
+        # nome do campo de score/deliverability ainda não confirmado contra a
+        # conta real — tenta as variações mais comuns e guarda o que vier
+        score = bloco.get("score") or bloco.get("confidence") or bloco.get("deliverability_score")
+        return {"email": email, "score": score}
     except Exception:
         return {}
 
@@ -755,13 +759,16 @@ def buscar_lead():
         try:
             # ── Estado acumulado ao longo da cascata ───────────────────────
             emails_fontes = {}      # email (lowercase) -> set(nomes das fontes que confirmaram)
+            emails_score = {}       # email (lowercase) -> {"valor": int, "fonte": str} — score de deliverability, quando a fonte fornecer
             telefones_fontes = {}   # dígitos normalizados -> {"display": str, "fontes": set(...)}
             emails_brutos = set()   # tudo que foi achado, mesmo se duplicado no HubSpot (p/ flag final)
             telefones_brutos = set()
 
-            def registrar_email(email, fonte) -> bool:
+            def registrar_email(email, fonte, score=None) -> bool:
                 """Registra o e-mail vindo de uma fonte. Retorna True se é contato
-                NOVO (não está na lista do HubSpot) — False descarta do resultado."""
+                NOVO (não está na lista do HubSpot) — False descarta do resultado.
+                Se a fonte trouxer um score de deliverability (Hunter/Clay), guarda
+                — é uma dimensão de confiança à parte, não descartamos esse dado."""
                 if not email:
                     return False
                 email = email.lower().strip()
@@ -769,6 +776,8 @@ def buscar_lead():
                 if email in contatos_hubspot_norm:
                     return False
                 emails_fontes.setdefault(email, set()).add(fonte)
+                if score is not None and email not in emails_score:
+                    emails_score[email] = {"valor": score, "fonte": fonte}
                 return True
 
             def registrar_telefone(telefone, fonte) -> bool:
@@ -886,13 +895,13 @@ def buscar_lead():
                     achou = buscar_hunter_email(pessoa_rh["nome_cargo"], dominio_site)
                     registrar_uso("hunter")
                     niveis_usados.append("hunter")
-                    if achou.get("email") and registrar_email(achou["email"], "hunter"):
+                    if achou.get("email") and registrar_email(achou["email"], "hunter", achou.get("score")):
                         pessoa_rh["email"] = achou["email"]
                 if pessoa_fin and not pessoa_completa(pessoa_fin) and pode_usar("hunter"):
                     achou = buscar_hunter_email(pessoa_fin["nome_cargo"], dominio_site)
                     registrar_uso("hunter")
                     niveis_usados.append("hunter")
-                    if achou.get("email") and registrar_email(achou["email"], "hunter"):
+                    if achou.get("email") and registrar_email(achou["email"], "hunter", achou.get("score")):
                         pessoa_fin["email"] = achou["email"]
 
             # ═══ NÍVEL 4 — Clay (enriquecimento agregado) ═══
@@ -901,13 +910,13 @@ def buscar_lead():
                     achou = buscar_clay_email(pessoa_rh["nome_cargo"], dominio_site, empresa_nome)
                     registrar_uso("clay")
                     niveis_usados.append("clay")
-                    if achou.get("email") and registrar_email(achou["email"], "clay"):
+                    if achou.get("email") and registrar_email(achou["email"], "clay", achou.get("score")):
                         pessoa_rh["email"] = achou["email"]
                 if pessoa_fin and not pessoa_completa(pessoa_fin) and pode_usar("clay"):
                     achou = buscar_clay_email(pessoa_fin["nome_cargo"], dominio_site, empresa_nome)
                     registrar_uso("clay")
                     niveis_usados.append("clay")
-                    if achou.get("email") and registrar_email(achou["email"], "clay"):
+                    if achou.get("email") and registrar_email(achou["email"], "clay", achou.get("score")):
                         pessoa_fin["email"] = achou["email"]
 
             # ═══ NÍVEL 5 — PhantomBuster (última opção, assíncrono, pode demorar) ═══
@@ -944,6 +953,9 @@ def buscar_lead():
                     "possivel_contador": confianca["possivel_contador"],
                     "fontes": sorted(fontes),
                     "status_confirmacao": "confirmado" if len(fontes) >= 2 else "não confirmado, usar com cautela",
+                    # 3ª dimensão de confiança: score de deliverability do Hunter/Clay,
+                    # quando a fonte fornecer (None se nenhuma fonte deu esse dado)
+                    "score_verificacao": emails_score.get(e),
                     "origem": "receita_federal" if e == email_receita else ("site" if e in emails_site else "busca"),
                 }
                 # e-mail com padrão de contador NÃO entra na lista principal:
