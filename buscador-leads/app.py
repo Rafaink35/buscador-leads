@@ -398,7 +398,8 @@ def gerar_variacoes_slug(empresa: str) -> list:
     palavras = re.sub(r'[^a-zA-Z0-9\s]', '', empresa).split()
     palavras_uteis = [p for p in palavras if normalizar_texto(p) not in
                       ['ltda', 'sa', 'eireli', 'me', 'epp', 'equipamentos', 'comercio',
-                       'industria', 'servicos', 'solucoes', 'grupo', 'brasil']]
+                       'industria', 'servicos', 'solucoes', 'grupo', 'brasil',
+                       'lojas', 'cia', 'companhia', 'rede']]
     slugs = []
     if palavras_uteis:
         slugs.append(normalizar_texto(palavras_uteis[0]))
@@ -408,18 +409,50 @@ def gerar_variacoes_slug(empresa: str) -> list:
     return list(dict.fromkeys(slugs))
 
 
+TLDS_TENTATIVA_DIRETA = ['.com.br', '.com', '.ai', '.io', '.co', '.net']
+
+# páginas de desafio anti-bot ou de domínio parado/à venda não são conteúdo
+# real da empresa — mas costumam ecoar o próprio hostname no HTML/JS da
+# página (ex.: Cloudflare grava o domínio testado no config do desafio),
+# o que engana a checagem de "o slug aparece no conteúdo"
+SINAIS_PAGINA_INVALIDA = [
+    "just a moment", "enable javascript and cookies", "checking your browser",
+    "attention required! | cloudflare", "domain is for sale", "domain for sale",
+    "buy this domain", "parked domain", "this domain is parked",
+]
+
+
 def descobrir_site_tentativa_direta(empresa: str) -> str:
+    """Tenta adivinhar o domínio pelo nome da empresa. Um domínio curto/comum
+    (ex.: "blip", "lojas", "stone") pode coincidir com o registro de uma
+    empresa totalmente diferente — por isso não basta o domínio responder
+    (status < 400): baixamos a página e confirmamos que o slug tentado
+    realmente aparece no conteúdo antes de aceitar como site oficial.
+    Também rejeitamos redirecionamento pra um domínio diferente do que foi
+    tentado — domínio "estacionado"/vendido que redireciona pra outra
+    empresa pode conter o mesmo texto por coincidência (ex.: blip.co
+    redireciona pra blipbillboards.com, outra empresa, que também tem
+    "blip" no conteúdo)."""
     for slug in gerar_variacoes_slug(empresa):
         if len(slug) < 3:
             continue
-        for url in [f"https://www.{slug}.com.br", f"https://{slug}.com.br",
-                    f"https://www.{slug}.com", f"https://{slug}.com"]:
-            try:
-                r = requests.head(url, timeout=5, allow_redirects=True)
-                if r.status_code < 400:
-                    return url
-            except Exception:
-                continue
+        for tld in TLDS_TENTATIVA_DIRETA:
+            for url in [f"https://www.{slug}{tld}", f"https://{slug}{tld}"]:
+                try:
+                    r = requests.get(url, timeout=8, allow_redirects=True,
+                                      headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    if r.status_code >= 400:
+                        continue
+                    if extrair_dominio_de_url(r.url) != extrair_dominio_de_url(url):
+                        continue
+                    texto_pagina = r.text[:20000]
+                    texto_pagina_lower = texto_pagina.lower()
+                    if any(s in texto_pagina_lower for s in SINAIS_PAGINA_INVALIDA):
+                        continue
+                    if slug in normalizar_texto(texto_pagina):
+                        return r.url
+                except Exception:
+                    continue
     return None
 
 
@@ -844,9 +877,11 @@ def buscar_lead():
                 registrar_uso("serpapi")
                 niveis_usados.append("serpapi")
                 texto1 = texto_resultados(r1)
-                if not site:
-                    site = extrair_linkedin_empresa(r1)
-                    dominio_site = extrair_dominio_de_url(site) if site else ""
+                # NÃO usar a página do LinkedIn como "site" aqui — linkedin_empresa
+                # é descoberto corretamente logo abaixo, com sua própria query. Usar
+                # o link do LinkedIn como domínio de comparação fazia todo e-mail
+                # legítimo da empresa (@empresa.com.br) ser marcado como baixa
+                # confiança por "não bater com o site oficial (linkedin.com)".
                 padrao_email = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
                 for e in re.findall(padrao_email, texto1):
                     if normalizar_texto(termo_busca)[:6] in normalizar_texto(e):
