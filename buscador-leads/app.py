@@ -10,7 +10,7 @@ app = Flask(__name__, static_folder=".")
 
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 GEMINI_KEY  = os.getenv("GEMINI_API_KEY")
-GEMINI_URL  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_KEY}"
+GEMINI_URL  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_KEY}"
 
 
 def buscar(query):
@@ -25,7 +25,7 @@ def resumir(resultados):
 
 
 def chamar_gemini(prompt):
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000}}
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000, "thinkingConfig": {"thinkingBudget": 0}}}
     r = requests.post(GEMINI_URL, json=payload)
     data = r.json()
     if "error" in data:
