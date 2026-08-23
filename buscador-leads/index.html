@@ -133,13 +133,12 @@
     <div class="niveis-bar-text">🔎 Fontes usadas: <span id="niveis-usados"></span></div>
     <div class="quotas-text" id="quotas-texto"></div>
   </div>
-  <div class="section">
-    <div class="section-title">📱 Telefones novos</div>
-    <div class="item-list" id="r-telefones-novos"></div>
+  <div class="section" id="r-ja-existe-wrap" style="display:none">
+    <div class="item-conhecido"><span>⚠ Todos os contatos encontrados já constam no HubSpot.</span></div>
   </div>
   <div class="section">
-    <div class="section-title">🔁 Telefones já conhecidos</div>
-    <div class="item-list" id="r-telefones-conhecidos"></div>
+    <div class="section-title">📱 Telefones (novos, não estão no HubSpot)</div>
+    <div class="item-list" id="r-telefones-novos"></div>
   </div>
   <div class="section">
     <div class="section-title">📧 Emails confirmados</div>
@@ -173,7 +172,11 @@
 
 <script>
 const NOMES_DEPTO = { financeiro: 'Financeiro', rh: 'RH', compras: 'Compras', comercial: 'Comercial', geral: 'Geral' };
-const NOMES_NIVEL = { gratuito: 'Gratuito', serpapi: 'SerpAPI', apify: 'Apify' };
+const NOMES_NIVEL = { serpapi: 'SerpAPI', apify: 'Apify', hunter: 'Hunter.io', clay: 'Clay', phantombuster: 'PhantomBuster' };
+function nomeNivel(n) {
+  if (n.startsWith('receita:')) return 'Receita Federal (' + n.split(':')[1] + ')';
+  return NOMES_NIVEL[n] || n;
+}
 
 function linkOuTexto(valor, url) {
   const nao = !valor || valor.toLowerCase().includes('não encontrado');
@@ -198,7 +201,7 @@ async function buscar() {
     const res = await fetch('/buscar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa, numeros_conhecidos: numeros })
+      body: JSON.stringify({ empresa, contatos_hubspot: numeros })
     });
     const data = await res.json();
     document.getElementById('loader').classList.remove('active');
@@ -212,18 +215,18 @@ async function buscar() {
       document.getElementById('r-tag').textContent = data.fonte_receita_federal ? '✓ Receita Federal' : '✓ Dados públicos';
       document.getElementById('r-cache-tag').style.display = data.veio_do_cache ? 'inline-block' : 'none';
 
-      document.getElementById('niveis-usados').textContent = (data.niveis_usados || ['gratuito']).map(n => NOMES_NIVEL[n] || n).join(' → ');
+      document.getElementById('niveis-usados').textContent = (data.niveis_usados && data.niveis_usados.length)
+        ? data.niveis_usados.map(nomeNivel).join(' → ')
+        : 'nenhuma fonte paga usada';
       if (data.quotas) {
         document.getElementById('quotas-texto').textContent = 'Cota do mês — ' + Object.entries(data.quotas).map(([f, q]) => `${NOMES_NIVEL[f] || f}: ${q.usos}/${q.limite}`).join(' · ');
       }
 
-      document.getElementById('r-telefones-novos').innerHTML = data.telefones_novos.length === 0
-        ? '<div class="empty-msg">Nenhum telefone novo</div>'
-        : data.telefones_novos.map(t => `<div class="item-novo"><span>${t}</span><span class="badge-novo">NOVO</span></div>`).join('');
+      document.getElementById('r-ja-existe-wrap').style.display = data.todos_contatos_ja_existem ? 'block' : 'none';
 
-      document.getElementById('r-telefones-conhecidos').innerHTML = data.telefones_ja_conhecidos.length === 0
-        ? '<div class="empty-msg">Nenhum repetido</div>'
-        : data.telefones_ja_conhecidos.map(t => `<div class="item-conhecido"><span>${t}</span><span class="badge-conhecido">JÁ TEM</span></div>`).join('');
+      document.getElementById('r-telefones-novos').innerHTML = (!data.telefones || data.telefones.length === 0)
+        ? '<div class="empty-msg">Nenhum telefone novo encontrado</div>'
+        : data.telefones.map(t => `<div class="item-novo"><span>${t}</span><span class="badge-novo">NOVO</span></div>`).join('');
 
       document.getElementById('r-emails').innerHTML = (!data.emails || data.emails.length === 0)
         ? '<div class="empty-msg">Não encontrado em fonte pública</div>'
@@ -234,8 +237,10 @@ async function buscar() {
         : data.emails_sugeridos.map(s => `<div class="item-sugestao"><span>${s.email_sugerido}</span><span class="depto-tag-sug">${NOMES_DEPTO[s.departamento] || s.departamento}</span></div>`).join('');
 
       document.getElementById('r-li-empresa-wrap').innerHTML = linkOuTexto(data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
-      document.getElementById('r-li-rh-wrap').innerHTML = linkOuTexto(data.linkedin_rh, data.linkedin_rh_url);
-      document.getElementById('r-li-fin-wrap').innerHTML = linkOuTexto(data.linkedin_financeiro, data.linkedin_financeiro_url);
+      document.getElementById('r-li-rh-wrap').innerHTML = linkOuTexto(data.linkedin_rh, data.linkedin_rh_url)
+        + (data.rh_email ? `<div class="item-email"><span>${data.rh_email}</span></div>` : '');
+      document.getElementById('r-li-fin-wrap').innerHTML = linkOuTexto(data.linkedin_financeiro, data.linkedin_financeiro_url)
+        + (data.financeiro_email ? `<div class="item-email"><span>${data.financeiro_email}</span></div>` : '');
 
       document.getElementById('r-socios').innerHTML = (!data.socios || data.socios.length === 0)
         ? '<div class="empty-msg">Não disponível (informe um CNPJ)</div>'
