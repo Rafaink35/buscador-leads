@@ -425,6 +425,41 @@ SINAIS_PAGINA_INVALIDA = [
 ]
 
 
+def parece_dominio(texto: str) -> bool:
+    """"blip.ai", "totvs.com.br" etc — a entrada já veio como domínio."""
+    texto = texto.strip()
+    return " " not in texto and bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9-]+)+$', texto))
+
+
+def validar_candidato_site(url: str, termo_esperado: str, exigir_termo: bool = True) -> str:
+    """GET no candidato, aceita só se: responde <400, não redireciona pra outro
+    domínio, não é página de desafio/parking. Se exigir_termo, também exige que
+    o termo esperado apareça no conteúdo — essa parte existe pra reduzir o risco
+    de aceitar o domínio de OUTRA empresa quando estamos adivinhando (slug de
+    palavra). Quando o candidato já é o domínio literal que a entrada informou
+    (não uma adivinhação), não tem o que desambiguar — e exigir o termo no
+    conteúdo rejeitaria sites reais que são SPA renderizada via JS (o HTML cru
+    não tem o nome em texto estático, é tudo bundle), como aconteceu com
+    blip.ai. Retorna a URL final (pós-redirect) se aceito, senão None."""
+    try:
+        r = requests.get(url, timeout=8, allow_redirects=True,
+                          headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        if r.status_code >= 400:
+            return None
+        if extrair_dominio_de_url(r.url) != extrair_dominio_de_url(url):
+            return None
+        texto_pagina = r.text[:20000]
+        if any(s in texto_pagina.lower() for s in SINAIS_PAGINA_INVALIDA):
+            return None
+        if not exigir_termo:
+            return r.url
+        if termo_esperado and termo_esperado in normalizar_texto(texto_pagina):
+            return r.url
+    except Exception:
+        pass
+    return None
+
+
 def descobrir_site_tentativa_direta(empresa: str) -> str:
     """Tenta adivinhar o domínio pelo nome da empresa. Um domínio curto/comum
     (ex.: "blip", "lojas", "stone") pode coincidir com o registro de uma
@@ -436,26 +471,26 @@ def descobrir_site_tentativa_direta(empresa: str) -> str:
     empresa pode conter o mesmo texto por coincidência (ex.: blip.co
     redireciona pra blipbillboards.com, outra empresa, que também tem
     "blip" no conteúdo)."""
+    # se a entrada já veio como domínio (ex.: "blip.ai"), tenta ele literalmente
+    # primeiro. Sem isso, gerar_variacoes_slug() remove o ponto pra gerar slugs
+    # de palavra ("blip.ai" -> "blipai"), e o domínio real nunca é tentado como
+    # tal — só variações tipo "blipai.com", que podem coincidir com o registro
+    # de outra empresa qualquer (foi exatamente o que aconteceu aqui).
+    if parece_dominio(empresa):
+        dominio = empresa.strip().lower()
+        for url in [f"https://www.{dominio}", f"https://{dominio}"]:
+            achado = validar_candidato_site(url, None, exigir_termo=False)
+            if achado:
+                return achado
+
     for slug in gerar_variacoes_slug(empresa):
         if len(slug) < 3:
             continue
         for tld in TLDS_TENTATIVA_DIRETA:
             for url in [f"https://www.{slug}{tld}", f"https://{slug}{tld}"]:
-                try:
-                    r = requests.get(url, timeout=8, allow_redirects=True,
-                                      headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-                    if r.status_code >= 400:
-                        continue
-                    if extrair_dominio_de_url(r.url) != extrair_dominio_de_url(url):
-                        continue
-                    texto_pagina = r.text[:20000]
-                    texto_pagina_lower = texto_pagina.lower()
-                    if any(s in texto_pagina_lower for s in SINAIS_PAGINA_INVALIDA):
-                        continue
-                    if slug in normalizar_texto(texto_pagina):
-                        return r.url
-                except Exception:
-                    continue
+                achado = validar_candidato_site(url, slug)
+                if achado:
+                    return achado
     return None
 
 
