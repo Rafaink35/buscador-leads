@@ -10,22 +10,25 @@ load_dotenv()
 
 app = Flask(__name__, static_folder=".")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-
-GROQ_MODEL = "llama-3.1-8b-instant"
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+HUNTER_API_KEY = os.getenv("HUNTER_API_KEY")
+CLAY_API_KEY = os.getenv("CLAY_API_KEY")
+PHANTOMBUSTER_API_KEY = os.getenv("PHANTOMBUSTER_API_KEY")
+PHANTOMBUSTER_AGENT_ID = os.getenv("PHANTOMBUSTER_AGENT_ID")  # falta no .env — ver comentário em buscar_phantombuster_funcionarios
 
 CACHE_ARQUIVO = "cache_empresas.json"
 QUOTA_ARQUIVO = "quota_uso.json"
 CACHE_VALIDADE_DIAS = 30
 
 # Tetos com margem de segurança (abaixo do limite real de cada plano)
+# hunter/clay/phantombuster: valores placeholder — ajuste conforme seu plano real
 LIMITES_MES = {
-    "serpapi": 90,    # plano free é 100/mês, deixamos 10 de colchão
-    "apify": 40,      # dentro dos $5 grátis em créditos
-    "groq": 800,      # bem abaixo do limite diário do free tier
+    "serpapi": 90,          # plano free é 100/mês, deixamos 10 de colchão
+    "apify": 40,            # dentro dos $5 grátis em créditos
+    "hunter": 20,           # free tier costuma ser 25/mês, deixamos margem
+    "clay": 90,             # ajuste conforme seu plano
+    "phantombuster": 20,    # execuções assíncronas — ajuste conforme seu plano
 }
 
 
@@ -45,7 +48,7 @@ def gravar_cache(dados: dict):
         json.dump(dados, f, ensure_ascii=False)
 
 
-def buscar_no_cache(chave: str) -> dict:
+def buscar_no_cache(chave: str, hubspot_fingerprint: str) -> dict:
     cache = ler_cache()
     entrada = cache.get(chave)
     if not entrada:
@@ -53,12 +56,16 @@ def buscar_no_cache(chave: str) -> dict:
     idade_dias = (time.time() - entrada.get("timestamp", 0)) / 86400
     if idade_dias > CACHE_VALIDADE_DIAS:
         return None
+    # lista de contatos já existentes no HubSpot mudou desde a última busca:
+    # invalida o cache e roda a cascata de novo (pode haver contato novo a achar)
+    if entrada.get("hubspot_fingerprint", "") != hubspot_fingerprint:
+        return None
     return entrada.get("dados")
 
 
-def salvar_no_cache(chave: str, dados: dict):
+def salvar_no_cache(chave: str, dados: dict, hubspot_fingerprint: str):
     cache = ler_cache()
-    cache[chave] = {"timestamp": time.time(), "dados": dados}
+    cache[chave] = {"timestamp": time.time(), "dados": dados, "hubspot_fingerprint": hubspot_fingerprint}
     gravar_cache(cache)
 
 
@@ -114,6 +121,48 @@ def normalizar_telefone(tel: str) -> str:
 
 def chave_cache(texto: str) -> str:
     return limpar_cnpj(texto) if eh_cnpj(texto) else normalizar_texto(texto)
+
+
+def normalizar_contato(valor: str) -> str:
+    """E-mail -> lowercase. Telefone -> só dígitos. Usado tanto pra comparar
+    com a lista do HubSpot quanto pra gerar o fingerprint do cache."""
+    valor = (valor or "").strip()
+    return valor.lower() if "@" in valor else normalizar_telefone(valor)
+
+
+def parse_lista_contatos(bruto) -> list:
+    """Aceita tanto lista (JSON array) quanto string separada por vírgula/quebra de linha."""
+    if not bruto:
+        return []
+    if isinstance(bruto, list):
+        return [c for c in bruto if c and str(c).strip()]
+    return [c for c in re.split(r'[,;\n]', str(bruto)) if c.strip()]
+
+
+def fingerprint_contatos(contatos: list) -> str:
+    return "|".join(sorted(set(normalizar_contato(c) for c in contatos)))
+
+
+def separar_nome(nome_completo: str) -> tuple:
+    """'João Silva - Diretor Financeiro' -> ('João', 'Silva')"""
+    nome_limpo = (nome_completo or "").split(" - ")[0].strip()
+    partes = nome_limpo.split()
+    if not partes:
+        return "", ""
+    return partes[0], (partes[-1] if len(partes) > 1 else "")
+
+
+def pessoa_completa(pessoa: dict) -> bool:
+    """nome + cargo (embutidos em nome_cargo) + contato direto (email ou telefone).
+    LinkedIn sozinho NÃO conta como contato — é justamente o que Hunter/Clay/
+    PhantomBuster existem pra resolver quando só se tem o perfil."""
+    if not pessoa:
+        return False
+    return bool(pessoa.get("nome_cargo")) and bool(pessoa.get("email") or pessoa.get("telefone"))
+
+
+def dados_completos(pessoa_rh: dict, pessoa_fin: dict) -> bool:
+    return pessoa_completa(pessoa_rh) and pessoa_completa(pessoa_fin)
 
 
 PREFIXOS_DEPARTAMENTO = {
@@ -199,8 +248,9 @@ def avaliar_confianca_email(email: str, dominio_site: str, razao_social: str = "
                 "possivel_contador": False}
 
     if dominio_site and dom_email != dominio_site:
-        # domínio corporativo, mas diferente do site: holding? contador com domínio neutro?
-        return {"nivel": "media", "motivo": f"domínio próprio ({dom_email}) difere do site ({dominio_site})",
+        # domínio não bate com o site oficial: baixa confiança, mesmo sendo domínio próprio
+        # (pode ser holding, terceiro, ou cadastro desatualizado)
+        return {"nivel": "baixa", "motivo": f"domínio ({dom_email}) não bate com o site oficial ({dominio_site})",
                 "possivel_contador": False}
 
     # sem site para comparar: usa semelhança com a razão social como heurística
@@ -303,8 +353,32 @@ def buscar_cnpja(cnpj: str) -> dict:
         return {}
 
 
+def buscar_receitaws(cnpj: str) -> dict:
+    """Terceiro fallback do cadastro Receita. Endpoint aberto sem chave, mas com
+    rate limit apertado (~3 consultas/min) — por isso só entra se as duas
+    fontes anteriores (mais tolerantes a volume) já tiverem falhado."""
+    cnpj_limpo = limpar_cnpj(cnpj)
+    try:
+        r = requests.get(f"https://receitaws.com.br/v1/cnpj/{cnpj_limpo}", timeout=15)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        if data.get("status") == "ERROR":
+            return {}
+        return {
+            "razao_social": data.get("nome"),
+            "nome_fantasia": data.get("fantasia") or data.get("nome"),
+            "telefone": data.get("telefone") or None,
+            "email": (data.get("email") or "").lower() or None,
+            "endereco": f"{data.get('logradouro', '')}, {data.get('municipio', '')} - {data.get('uf', '')}",
+            "socios": [s.get("nome") for s in data.get("qsa", []) if s.get("nome")]
+        }
+    except Exception:
+        return {}
+
+
 def buscar_receita(cnpj: str) -> dict:
-    """Nível 0 com redundância: BrasilAPI primeiro, CNPJá se ela falhar."""
+    """Nível 0 com redundância: BrasilAPI -> CNPJá -> ReceitaWS."""
     dados = buscar_brasilapi(cnpj)
     if dados:
         dados["fonte_cadastro"] = "brasilapi"
@@ -312,6 +386,10 @@ def buscar_receita(cnpj: str) -> dict:
     dados = buscar_cnpja(cnpj)
     if dados:
         dados["fonte_cadastro"] = "cnpja"
+        return dados
+    dados = buscar_receitaws(cnpj)
+    if dados:
+        dados["fonte_cadastro"] = "receitaws"
     return dados
 
 
@@ -510,7 +588,8 @@ def extrair_pessoa_linkedin(resultados: list, empresa: str, termos_cargo: list) 
             continue
         nome = titulo.split(" - ")[0].split(" | ")[0].strip()
         cargo_match = next((t for t in termos_cargo if normalizar_texto(t) in normalizar_texto(texto_completo)), None)
-        return {"nome_cargo": f"{nome} - {cargo_match}" if cargo_match else nome, "linkedin": link}
+        return {"nome_cargo": f"{nome} - {cargo_match}" if cargo_match else nome, "linkedin": link,
+                "email": None, "telefone": None}
     return None
 
 
@@ -539,12 +618,114 @@ def filtrar_cargo_na_lista(funcionarios: list, termos_cargo: list) -> dict:
         titulo = f.get("title", "") or f.get("headline", "") or f.get("position", "")
         nome = f.get("name", "") or f.get("fullName", "")
         link = f.get("profileUrl", "") or f.get("url", "") or f.get("link", "")
+        # alguns scrapers de LinkedIn trazem e-mail público no próprio registro
+        email = (f.get("email") or "").lower() or None
         if not titulo or not nome:
             continue
         if any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_cargo):
             cargo = next((t for t in termos_cargo if normalizar_texto(t) in normalizar_texto(titulo)), titulo)
-            return {"nome_cargo": f"{nome} - {cargo}", "linkedin": link}
+            return {"nome_cargo": f"{nome} - {cargo}", "linkedin": link, "email": email, "telefone": None}
     return None
+
+
+# ─── NÍVEL 3 — pago com cota: Hunter.io (email finder por nome + domínio) ────
+def buscar_hunter_email(nome_completo: str, dominio: str) -> dict:
+    if not HUNTER_API_KEY or not dominio or not nome_completo:
+        return {}
+    primeiro, ultimo = separar_nome(nome_completo)
+    if not primeiro:
+        return {}
+    try:
+        r = requests.get("https://api.hunter.io/v2/email-finder", params={
+            "domain": dominio, "first_name": primeiro, "last_name": ultimo or primeiro,
+            "api_key": HUNTER_API_KEY
+        }, timeout=15)
+        if r.status_code != 200:
+            return {}
+        dados = (r.json() or {}).get("data") or {}
+        email = dados.get("email")
+        # score baixo (< 50) o Hunter já sinaliza como pouco confiável — descarta
+        if not email or (dados.get("score") or 0) < 50:
+            return {}
+        return {"email": email.lower(), "score": dados.get("score")}
+    except Exception:
+        return {}
+
+
+# ─── NÍVEL 4 — pago com cota: Clay (enriquecimento agregado) ────────────────
+# ATENÇÃO: Clay normalmente opera via webhook de uma tabela configurada na sua
+# conta, não um REST genérico de "achar e-mail de pessoa". O endpoint abaixo é
+# um placeholder no mesmo formato de entrada/saída do Hunter — precisa validar
+# contra a sua conta real (pode ser preciso trocar por uma URL de webhook).
+def buscar_clay_email(nome_completo: str, dominio: str, empresa: str = "") -> dict:
+    if not CLAY_API_KEY or not dominio or not nome_completo:
+        return {}
+    primeiro, ultimo = separar_nome(nome_completo)
+    if not primeiro:
+        return {}
+    try:
+        r = requests.post(
+            "https://api.clay.com/v1/people/enrich",  # placeholder — confirmar endpoint real da sua conta
+            headers={"Authorization": f"Bearer {CLAY_API_KEY}", "Content-Type": "application/json"},
+            json={"first_name": primeiro, "last_name": ultimo or primeiro, "domain": dominio, "company": empresa},
+            timeout=20
+        )
+        if r.status_code != 200:
+            return {}
+        dados = r.json() or {}
+        email = (dados.get("email") or dados.get("data", {}).get("email") or "").lower()
+        if not email:
+            return {}
+        return {"email": email}
+    except Exception:
+        return {}
+
+
+# ─── NÍVEL 5 — pago com cota, assíncrono: PhantomBuster (última opção) ──────
+# Precisa de PHANTOMBUSTER_AGENT_ID (id do Phantom já configurado na sua conta
+# pra scraping de funcionários de empresa no LinkedIn) — não está no .env ainda.
+# Assíncrono de verdade: dispara o agente e faz polling até terminar ou estourar
+# o tempo máximo (aceitável demorar mais, por isso é sempre a última fonte).
+def buscar_phantombuster_funcionarios(linkedin_empresa_url: str, tempo_maximo_s: int = 120) -> list:
+    if not PHANTOMBUSTER_API_KEY or not PHANTOMBUSTER_AGENT_ID or not linkedin_empresa_url:
+        return []
+    headers = {"X-Phantombuster-Key": PHANTOMBUSTER_API_KEY, "Content-Type": "application/json"}
+    try:
+        r = requests.post(
+            "https://api.phantombuster.com/api/v2/agents/launch",
+            headers=headers,
+            json={"id": PHANTOMBUSTER_AGENT_ID, "argument": {"companyUrl": linkedin_empresa_url}},
+            timeout=20
+        )
+        if r.status_code != 200:
+            return []
+        container_id = (r.json() or {}).get("containerId")
+        if not container_id:
+            return []
+
+        decorridos = 0
+        intervalo = 5
+        while decorridos < tempo_maximo_s:
+            time.sleep(intervalo)
+            decorridos += intervalo
+            status_r = requests.get(
+                "https://api.phantombuster.com/api/v2/containers/fetch-output",
+                headers=headers, params={"id": container_id}, timeout=20
+            )
+            if status_r.status_code != 200:
+                continue
+            status_dados = status_r.json() or {}
+            if status_dados.get("status") == "finished":
+                resultado = status_dados.get("resultObject")
+                if isinstance(resultado, str):
+                    try:
+                        resultado = json.loads(resultado)
+                    except Exception:
+                        return []
+                return resultado if isinstance(resultado, list) else []
+        return []  # estourou o tempo máximo — desiste, não trava a resposta pro usuário
+    except Exception:
+        return []
 
 
 @app.route("/")
@@ -556,51 +737,81 @@ def index():
 def buscar_lead():
     data = request.json
     entrada = data.get("empresa", "").strip()
-    numeros_conhecidos = data.get("numeros_conhecidos", "").strip()
+    contatos_hubspot_bruto = parse_lista_contatos(data.get("contatos_hubspot"))
 
     if not entrada:
         return jsonify({"erro": "Nome, site ou CNPJ é obrigatório"}), 400
 
+    contatos_hubspot_norm = {normalizar_contato(c) for c in contatos_hubspot_bruto}
+    hubspot_fingerprint = fingerprint_contatos(contatos_hubspot_bruto)
+
     chave = chave_cache(entrada)
-    cache_hit = buscar_no_cache(chave)
+    cache_hit = buscar_no_cache(chave, hubspot_fingerprint)
 
     if cache_hit:
         resultado = dict(cache_hit)
         resultado["veio_do_cache"] = True
     else:
         try:
-            emails_encontrados, telefones_encontrados, socios = [], [], []
+            # ── Estado acumulado ao longo da cascata ───────────────────────
+            emails_fontes = {}      # email (lowercase) -> set(nomes das fontes que confirmaram)
+            telefones_fontes = {}   # dígitos normalizados -> {"display": str, "fontes": set(...)}
+            emails_brutos = set()   # tudo que foi achado, mesmo se duplicado no HubSpot (p/ flag final)
+            telefones_brutos = set()
+
+            def registrar_email(email, fonte) -> bool:
+                """Registra o e-mail vindo de uma fonte. Retorna True se é contato
+                NOVO (não está na lista do HubSpot) — False descarta do resultado."""
+                if not email:
+                    return False
+                email = email.lower().strip()
+                emails_brutos.add(email)
+                if email in contatos_hubspot_norm:
+                    return False
+                emails_fontes.setdefault(email, set()).add(fonte)
+                return True
+
+            def registrar_telefone(telefone, fonte) -> bool:
+                if not telefone:
+                    return False
+                chave_tel = normalizar_telefone(telefone)
+                telefones_brutos.add(chave_tel)
+                if chave_tel in contatos_hubspot_norm:
+                    return False
+                if chave_tel not in telefones_fontes:
+                    telefones_fontes[chave_tel] = {"display": telefone, "fontes": set()}
+                telefones_fontes[chave_tel]["fontes"].add(fonte)
+                return True
+
             site, empresa_nome, fonte_receita = None, entrada, False
             linkedin_empresa, pessoa_rh, pessoa_fin = None, None, None
-            niveis_usados = ["gratuito"]
-
-            # NOVO: rastreio de origem para o cálculo de confiança
+            niveis_usados = []
+            socios = []
             razao_social = ""
             email_receita, telefone_receita = None, None
-            telefones_receita_extras, emails_receita_extras = [], []
             telefones_site, emails_site = [], []
+            termos_rh = ["RH", "Recursos Humanos", "Gerente de RH", "Diretor de RH", "Head de RH"]
+            termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller"]
 
-            # NÍVEL 0 — sempre tenta primeiro, sem custo
+            # ═══ NÍVEL 0 — ReceitaWS/BrasilAPI/CNPJá + site oficial (grátis, sempre roda) ═══
             if eh_cnpj(entrada):
-                dados = buscar_receita(entrada)  # BrasilAPI com fallback CNPJá
+                dados = buscar_receita(entrada)
                 if dados:
+                    niveis_usados.append(f"receita:{dados.get('fonte_cadastro', '?')}")
                     empresa_nome = dados.get("nome_fantasia") or entrada
                     razao_social = dados.get("razao_social") or ""
                     fonte_receita = True
                     socios = dados.get("socios", [])
                     if dados.get("telefone"):
                         telefone_receita = dados["telefone"]
-                        telefones_encontrados.append(telefone_receita)
-                    # CNPJá pode trazer telefones/e-mails adicionais declarados
+                        registrar_telefone(telefone_receita, "receita")
                     for tel_extra in dados.get("telefones_extras", []):
-                        telefones_encontrados.append(tel_extra)
-                        telefones_receita_extras.append(tel_extra)
+                        registrar_telefone(tel_extra, "receita")
                     if dados.get("email"):
                         email_receita = dados["email"].lower()
-                        emails_encontrados.append(email_receita)
+                        registrar_email(email_receita, "receita")
                     for em_extra in dados.get("emails_extras", []):
-                        emails_encontrados.append(em_extra.lower())
-                        emails_receita_extras.append(em_extra.lower())
+                        registrar_email(em_extra.lower(), "receita")
 
             termo_busca = empresa_nome if empresa_nome != entrada else entrada
             site = descobrir_site(termo_busca)
@@ -608,72 +819,132 @@ def buscar_lead():
                 extra = extrair_emails_telefones_do_site(site)
                 emails_site = extra["emails"]
                 telefones_site = extra["telefones"]
-                emails_encontrados += emails_site
-                telefones_encontrados += telefones_site
+                for e in emails_site:
+                    registrar_email(e, "site")
+                for t in telefones_site:
+                    registrar_telefone(t, "site")
 
-            # NÍVEL 1 — só entra se faltou telefone OU email, e se ainda há cota
-            precisa_mais = not telefones_encontrados or not emails_encontrados
-            if precisa_mais and pode_usar("serpapi"):
+            dominio_site = extrair_dominio_de_url(site) if site else ""
+
+            # ═══ NÍVEL 1 — SerpAPI (cota) ═══
+            # pessoa_rh/pessoa_fin nunca vêm preenchidos do Nível 0 (ele só dá
+            # dado de empresa, não de pessoa) — então este nível roda quase
+            # sempre. É esperado: é a única forma de achar um nome pra começar.
+            if not dados_completos(pessoa_rh, pessoa_fin) and pode_usar("serpapi"):
                 r1 = buscar_serpapi(f'"{termo_busca}" telefone contato email')
                 registrar_uso("serpapi")
                 niveis_usados.append("serpapi")
                 texto1 = texto_resultados(r1)
                 if not site:
-                    site = extrair_linkedin_empresa(r1)  # fallback bem fraco, raramente usado
+                    site = extrair_linkedin_empresa(r1)
+                    dominio_site = extrair_dominio_de_url(site) if site else ""
                 padrao_email = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
-                novos_emails = re.findall(padrao_email, texto1)
-                emails_encontrados += [e.lower() for e in novos_emails if normalizar_texto(termo_busca)[:6] in normalizar_texto(e)]
-                novos_tel = re.findall(r'\(\d{2}\)\s?\d{4,5}-?\d{4}', texto1)
-                novos_tel = [t for t in novos_tel if telefone_plausivel(t)]
-                telefones_encontrados += novos_tel
+                for e in re.findall(padrao_email, texto1):
+                    if normalizar_texto(termo_busca)[:6] in normalizar_texto(e):
+                        registrar_email(e, "serpapi")
+                for t in re.findall(r'\(\d{2}\)\s?\d{4,5}-?\d{4}', texto1):
+                    if telefone_plausivel(t):
+                        registrar_telefone(t, "serpapi")
 
                 if pode_usar("serpapi"):
                     r_li = buscar_serpapi(f'"{termo_busca}" site:linkedin.com/company')
                     registrar_uso("serpapi")
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
 
-                if linkedin_empresa and pode_usar("serpapi"):
-                    termos_rh = ["RH", "Recursos Humanos", "Gerente de RH", "Diretor de RH", "Head de RH"]
-                    termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller"]
+                if linkedin_empresa and not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
                     r_rh = buscar_serpapi(f'"{termo_busca}" (gerente OR diretor OR head) RH site:linkedin.com/in')
                     registrar_uso("serpapi")
                     pessoa_rh = extrair_pessoa_linkedin(r_rh, termo_busca, termos_rh)
 
-                    if pode_usar("serpapi"):
-                        r_fin = buscar_serpapi(f'"{termo_busca}" (diretor OR gerente OR CFO) financeiro site:linkedin.com/in')
-                        registrar_uso("serpapi")
-                        niveis_usados.append("serpapi")
-                        pessoa_fin = extrair_pessoa_linkedin(r_fin, termo_busca, termos_fin)
+                if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
+                    r_fin = buscar_serpapi(f'"{termo_busca}" (diretor OR gerente OR CFO) financeiro site:linkedin.com/in')
+                    registrar_uso("serpapi")
+                    pessoa_fin = extrair_pessoa_linkedin(r_fin, termo_busca, termos_fin)
 
-            # NÍVEL 2 — só entra se ainda faltou o Financeiro, e se há cota de Apify
-            if not pessoa_fin and linkedin_empresa and pode_usar("apify"):
+            # ═══ NÍVEL 2 — Apify (scraping de funcionários do LinkedIn) ═══
+            if not dados_completos(pessoa_rh, pessoa_fin) and linkedin_empresa and pode_usar("apify"):
                 funcionarios = buscar_apify_funcionarios(linkedin_empresa)
                 if funcionarios:
                     registrar_uso("apify")
                     niveis_usados.append("apify")
-                    termos_fin = ["Financeiro", "CFO", "Diretor Financeiro", "Gerente Financeiro", "Controller"]
-                    termos_rh = ["RH", "Recursos Humanos", "Gerente de RH", "Diretor de RH"]
-                    pessoa_fin = filtrar_cargo_na_lista(funcionarios, termos_fin)
-                    if not pessoa_rh:
-                        pessoa_rh = filtrar_cargo_na_lista(funcionarios, termos_rh)
+                    if not pessoa_completa(pessoa_fin):
+                        candidato = filtrar_cargo_na_lista(funcionarios, termos_fin)
+                        if candidato:
+                            pessoa_fin = candidato
+                    if not pessoa_completa(pessoa_rh):
+                        candidato = filtrar_cargo_na_lista(funcionarios, termos_rh)
+                        if candidato:
+                            pessoa_rh = candidato
+                    # e-mail que já veio pronto no registro do scraping também passa pelo filtro anti-HubSpot
+                    for pessoa in (pessoa_rh, pessoa_fin):
+                        if pessoa and pessoa.get("email") and not registrar_email(pessoa["email"], "apify"):
+                            pessoa["email"] = None
 
-            telefones_encontrados = list(dict.fromkeys(telefones_encontrados))
-            emails_encontrados = list(dict.fromkeys(emails_encontrados))
+            # ═══ NÍVEL 3 — Hunter.io (email finder pra pessoa já identificada) ═══
+            if HUNTER_API_KEY and not dados_completos(pessoa_rh, pessoa_fin) and dominio_site and pode_usar("hunter"):
+                if pessoa_rh and not pessoa_completa(pessoa_rh):
+                    achou = buscar_hunter_email(pessoa_rh["nome_cargo"], dominio_site)
+                    registrar_uso("hunter")
+                    niveis_usados.append("hunter")
+                    if achou.get("email") and registrar_email(achou["email"], "hunter"):
+                        pessoa_rh["email"] = achou["email"]
+                if pessoa_fin and not pessoa_completa(pessoa_fin) and pode_usar("hunter"):
+                    achou = buscar_hunter_email(pessoa_fin["nome_cargo"], dominio_site)
+                    registrar_uso("hunter")
+                    niveis_usados.append("hunter")
+                    if achou.get("email") and registrar_email(achou["email"], "hunter"):
+                        pessoa_fin["email"] = achou["email"]
 
-            # ── NOVO: classificação de confiança ──────────────────────────
-            dominio_site = extrair_dominio_de_url(site) if site else ""
+            # ═══ NÍVEL 4 — Clay (enriquecimento agregado) ═══
+            if CLAY_API_KEY and not dados_completos(pessoa_rh, pessoa_fin) and dominio_site and pode_usar("clay"):
+                if pessoa_rh and not pessoa_completa(pessoa_rh):
+                    achou = buscar_clay_email(pessoa_rh["nome_cargo"], dominio_site, empresa_nome)
+                    registrar_uso("clay")
+                    niveis_usados.append("clay")
+                    if achou.get("email") and registrar_email(achou["email"], "clay"):
+                        pessoa_rh["email"] = achou["email"]
+                if pessoa_fin and not pessoa_completa(pessoa_fin) and pode_usar("clay"):
+                    achou = buscar_clay_email(pessoa_fin["nome_cargo"], dominio_site, empresa_nome)
+                    registrar_uso("clay")
+                    niveis_usados.append("clay")
+                    if achou.get("email") and registrar_email(achou["email"], "clay"):
+                        pessoa_fin["email"] = achou["email"]
+
+            # ═══ NÍVEL 5 — PhantomBuster (última opção, assíncrono, pode demorar) ═══
+            if not dados_completos(pessoa_rh, pessoa_fin) and linkedin_empresa and pode_usar("phantombuster"):
+                funcionarios = buscar_phantombuster_funcionarios(linkedin_empresa)
+                if funcionarios:
+                    registrar_uso("phantombuster")
+                    niveis_usados.append("phantombuster")
+                    if not pessoa_completa(pessoa_fin):
+                        candidato = filtrar_cargo_na_lista(funcionarios, termos_fin)
+                        if candidato:
+                            pessoa_fin = candidato
+                    if not pessoa_completa(pessoa_rh):
+                        candidato = filtrar_cargo_na_lista(funcionarios, termos_rh)
+                        if candidato:
+                            pessoa_rh = candidato
+                    for pessoa in (pessoa_rh, pessoa_fin):
+                        if pessoa and pessoa.get("email") and not registrar_email(pessoa["email"], "phantombuster"):
+                            pessoa["email"] = None
+
+            # ── Classificação de confiança + status de confirmação ─────────
+            emails_encontrados = list(emails_fontes.keys())
 
             emails_classificados = []
             emails_nao_verificados = []
             for e in emails_encontrados[:8]:
                 confianca = avaliar_confianca_email(e, dominio_site, razao_social)
+                fontes = emails_fontes[e]
                 registro = {
                     "email": e,
                     "departamento": classificar_email_por_departamento(e),
                     "confianca": confianca["nivel"],
                     "motivo": confianca["motivo"],
                     "possivel_contador": confianca["possivel_contador"],
-                    "origem": "receita_federal" if (e == email_receita or e in emails_receita_extras) else ("site" if e in emails_site else "busca"),
+                    "fontes": sorted(fontes),
+                    "status_confirmacao": "confirmado" if len(fontes) >= 2 else "não confirmado, usar com cautela",
+                    "origem": "receita_federal" if e == email_receita else ("site" if e in emails_site else "busca"),
                 }
                 # e-mail com padrão de contador NÃO entra na lista principal:
                 # cold email pra contador é buraco negro e queima sender reputation
@@ -683,19 +954,23 @@ def buscar_lead():
                     emails_classificados.append(registro)
 
             telefones_classificados = []
-            for t in telefones_encontrados[:5]:
-                if t == telefone_receita or t in telefones_receita_extras:
+            for chave_tel in list(telefones_fontes.keys())[:5]:
+                info = telefones_fontes[chave_tel]
+                display, fontes = info["display"], info["fontes"]
+                if chave_tel == normalizar_telefone(telefone_receita or ""):
                     origem = "receita"
-                elif t in telefones_site:
+                elif display in telefones_site:
                     origem = "site"
                 else:
                     origem = "busca"
-                conf_tel = avaliar_confianca_telefone(t, origem, telefones_site)
+                conf_tel = avaliar_confianca_telefone(display, origem, telefones_site)
                 telefones_classificados.append({
-                    "telefone": t,
+                    "telefone": display,
                     "origem": origem,
                     "confianca": conf_tel["nivel"],
                     "motivo": conf_tel["motivo"],
+                    "fontes": sorted(fontes),
+                    "status_confirmacao": "confirmado" if len(fontes) >= 2 else "não confirmado, usar com cautela",
                 })
 
             # telefone suspeito de contador (só na Receita + e-mail da Receita era de contador):
@@ -709,6 +984,12 @@ def buscar_lead():
 
             sugestoes = sugerir_emails_departamentais(site, [e["email"] for e in emails_classificados])
 
+            # filtro anti-duplicidade HubSpot: sinaliza quando TUDO que foi achado
+            # já existia no HubSpot, em vez de simplesmente devolver vazio
+            todos_contatos_ja_existem = bool(
+                (emails_brutos or telefones_brutos) and not emails_encontrados and not telefones_fontes
+            )
+
             nao_encontrado = "Não encontrado em fonte pública"
             resultado = {
                 "empresa": empresa_nome,
@@ -716,7 +997,7 @@ def buscar_lead():
                 # formato antigo preservado (index.html continua funcionando):
                 "telefones": [tc["telefone"] for tc in telefones_classificados],
                 "emails": [{"email": ec["email"], "departamento": ec["departamento"]} for ec in emails_classificados],
-                # NOVOS campos com a camada de confiança:
+                # camada de confiança + rastreio de fontes:
                 "telefones_detalhe": telefones_classificados,
                 "emails_detalhe": emails_classificados,
                 "emails_nao_verificados": emails_nao_verificados,
@@ -727,19 +1008,19 @@ def buscar_lead():
                 "linkedin_empresa": linkedin_empresa or nao_encontrado,
                 "linkedin_rh": (pessoa_rh["nome_cargo"] + " (a confirmar)") if pessoa_rh else nao_encontrado,
                 "linkedin_rh_url": pessoa_rh["linkedin"] if pessoa_rh else None,
+                "rh_email": pessoa_rh.get("email") if pessoa_rh else None,
                 "linkedin_financeiro": (pessoa_fin["nome_cargo"] + " (a confirmar)") if pessoa_fin else nao_encontrado,
                 "linkedin_financeiro_url": pessoa_fin["linkedin"] if pessoa_fin else None,
+                "financeiro_email": pessoa_fin.get("email") if pessoa_fin else None,
+                # filtro anti-duplicidade HubSpot:
+                "todos_contatos_ja_existem": todos_contatos_ja_existem,
                 "niveis_usados": list(dict.fromkeys(niveis_usados)),
                 "veio_do_cache": False
             }
-            salvar_no_cache(chave, resultado)
+            salvar_no_cache(chave, resultado, hubspot_fingerprint)
 
         except Exception as e:
             return jsonify({"erro": str(e)}), 500
-
-    numeros_conhecidos_norm = [normalizar_telefone(n) for n in re.split(r'[,;\n]', numeros_conhecidos) if n.strip()]
-    resultado["telefones_novos"] = [t for t in resultado["telefones"] if normalizar_telefone(t) not in numeros_conhecidos_norm]
-    resultado["telefones_ja_conhecidos"] = [t for t in resultado["telefones"] if normalizar_telefone(t) in numeros_conhecidos_norm]
 
     quotas = ler_quotas()
     resultado["quotas"] = {fonte: {"usos": quotas[fonte]["usos"], "limite": LIMITES_MES[fonte]} for fonte in LIMITES_MES}
