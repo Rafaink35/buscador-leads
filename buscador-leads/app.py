@@ -446,11 +446,52 @@ def buscar_serpapi(query: str, hl: str = "pt", gl: str = "br") -> list:
                   "num": 5, "hl": hl or "pt", "gl": gl or "br", "safe": "off"}
         r = requests.get("https://serpapi.com/search", params=params, timeout=8)
         results = r.json().get("organic_results", [])
-        # Filtra /goto?url= que são artefatos do Google, não URLs reais
         validos = [res for res in results if not (res.get("link","") or "").startswith("/goto")]
-        return validos if validos else results
+        return validos if validos else []
     except Exception:
         return []
+
+
+def buscar_duckduckgo(query: str) -> list:
+    """Busca via DuckDuckGo HTML — grátis, sem API key, sem problema de /goto.
+    Retorna lista de resultados no mesmo formato do SerpAPI."""
+    try:
+        r = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            timeout=8
+        )
+        if r.status_code != 200:
+            return []
+        # Extrai links e snippets do HTML do DuckDuckGo
+        links = re.findall(r'class="result__url"[^>]*>([^<]+)<', r.text)
+        titles = re.findall(r'class="result__a"[^>]*>([^<]+)<', r.text)
+        snippets = re.findall(r'class="result__snippet"[^>]*>([^<]+)<', r.text)
+        # Normaliza URLs
+        results = []
+        for i, link in enumerate(links[:5]):
+            url = link.strip()
+            if not url.startswith("http"):
+                url = "https://" + url
+            results.append({
+                "link": url,
+                "title": titles[i].strip() if i < len(titles) else "",
+                "snippet": snippets[i].strip() if i < len(snippets) else ""
+            })
+        return results
+    except Exception:
+        return []
+
+
+def buscar_linkedin_pessoa(query: str) -> list:
+    """Busca perfis de LinkedIn de pessoas — tenta SerpAPI, cai no DuckDuckGo."""
+    if SERPAPI_KEY and pode_usar("serpapi"):
+        resultados = buscar_serpapi(query, hl=None, gl=None)
+        if any("linkedin.com/in/" in r.get("link","") for r in resultados):
+            return resultados, True  # True = usou SerpAPI
+    # DuckDuckGo como fallback
+    return buscar_duckduckgo(query), False
 
 def texto_resultados(resultados: list) -> str:
     return " ".join([(r.get("title","") + " " + r.get("snippet","") + " " + r.get("link","")) for r in resultados])
@@ -1003,38 +1044,53 @@ def buscar_lead():
                     if telefone_plausivel(t):
                         registrar_telefone(t, "serpapi")
 
-                # Busca LinkedIn da empresa — sem aspas e com localização BR
-                if pode_usar("serpapi"):
-                    r_li = buscar_serpapi(f'{termo_busca} linkedin empresa')
+                # Busca LinkedIn da empresa — DuckDuckGo (grátis, sem problema de /goto)
+                if not linkedin_empresa:
+                    try:
+                        r_ddg = requests.get(
+                            "https://html.duckduckgo.com/html/",
+                            params={"q": f"{termo_busca} site:linkedin.com/company"},
+                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                            timeout=8
+                        )
+                        links_li = re.findall(
+                            r'href="(https?://[^"]*linkedin\.com/company/[^"?]+)"',
+                            r_ddg.text
+                        )
+                        if links_li:
+                            linkedin_empresa = links_li[0].split("?")[0]
+                    except Exception:
+                        pass
+
+                # Fallback SerpAPI se DuckDuckGo não achou
+                if not linkedin_empresa and pode_usar("serpapi"):
+                    r_li = buscar_serpapi(f'{termo_busca} linkedin company page')
                     registrar_uso("serpapi")
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
-                    # fallback sem hl/gl se não achou
-                    if not linkedin_empresa and pode_usar("serpapi"):
-                        r_li2 = buscar_serpapi(f'site:linkedin.com/company {termo_busca}', hl=None, gl=None)
-                        registrar_uso("serpapi")
-                        linkedin_empresa = extrair_linkedin_empresa(r_li2)
 
-                # Busca de decisores — roda independente de ter achado o LinkedIn da empresa
+                # Busca de decisores — usa DuckDuckGo se SerpAPI não retornar LinkedIn
                 if not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
-                    r_rh = buscar_serpapi(f'{termo_busca} gerente de RH', hl=None, gl=None)
+                    r_rh, usou_serpapi = buscar_linkedin_pessoa(f'{termo_busca} gerente de RH')
+                    if usou_serpapi:
+                        registrar_uso("serpapi")
                     if not r_rh or not any("linkedin.com/in/" in r.get("link","") for r in r_rh):
-                        r_rh = buscar_serpapi(f'{termo_busca} head de pessoas recursos humanos linkedin', hl=None, gl=None)
-                    registrar_uso("serpapi")
+                        r_rh, usou_serpapi2 = buscar_linkedin_pessoa(f'{termo_busca} head de pessoas recursos humanos linkedin')
+                        if usou_serpapi2:
+                            registrar_uso("serpapi")
                     pessoa_rh = None
                     if GEMINI_API_KEY and pode_usar("gemini"):
                         pessoa_rh = escolher_linkedin_via_gemini(r_rh, termo_busca, "RH")
                         registrar_uso("gemini")
                     if not pessoa_rh:
                         pessoa_rh = extrair_pessoa_linkedin_de_resultados(r_rh, termo_busca, termos_rh)
-                    # Lusha valida imediatamente
                     if pessoa_rh and LUSHA_API_KEY:
                         pessoa_rh = validar_decisor_com_lusha(pessoa_rh, termo_busca)
                         if pessoa_rh:
                             niveis_usados.append("lusha:validacao")
-                    # fallback analista RH
-                    if not pessoa_rh and pode_usar("serpapi"):
-                        r_rh_an = buscar_serpapi(f'{termo_busca} analista coordenador RH linkedin', hl=None, gl=None)
-                        registrar_uso("serpapi")
+                    if not pessoa_rh:
+                        r_rh_an, usou_sa = buscar_linkedin_pessoa(f'{termo_busca} analista coordenador RH linkedin')
+                        if usou_sa:
+                            registrar_uso("serpapi")
                         candidato_an = extrair_pessoa_linkedin_de_resultados(
                             r_rh_an, termo_busca, termos_rh + termos_rh_analista, aceitar_analista=True)
                         if candidato_an and LUSHA_API_KEY:
@@ -1042,25 +1098,27 @@ def buscar_lead():
                         pessoa_rh = candidato_an
 
                 if not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
-                    r_fin = buscar_serpapi(f'{termo_busca} gerente financeiro', hl=None, gl=None)
+                    r_fin, usou_serpapi = buscar_linkedin_pessoa(f'{termo_busca} gerente financeiro')
+                    if usou_serpapi:
+                        registrar_uso("serpapi")
                     if not r_fin or not any("linkedin.com/in/" in r.get("link","") for r in r_fin):
-                        r_fin = buscar_serpapi(f'{termo_busca} CFO diretor financeiro controller linkedin', hl=None, gl=None)
-                    registrar_uso("serpapi")
+                        r_fin, usou_serpapi2 = buscar_linkedin_pessoa(f'{termo_busca} CFO diretor financeiro controller linkedin')
+                        if usou_serpapi2:
+                            registrar_uso("serpapi")
                     pessoa_fin = None
                     if GEMINI_API_KEY and pode_usar("gemini"):
                         pessoa_fin = escolher_linkedin_via_gemini(r_fin, termo_busca, "Financeiro")
                         registrar_uso("gemini")
                     if not pessoa_fin:
                         pessoa_fin = extrair_pessoa_linkedin_de_resultados(r_fin, termo_busca, termos_fin)
-                    # Lusha valida imediatamente
                     if pessoa_fin and LUSHA_API_KEY:
                         pessoa_fin = validar_decisor_com_lusha(pessoa_fin, termo_busca)
                         if pessoa_fin:
                             niveis_usados.append("lusha:validacao")
-                    # fallback analista Financeiro
-                    if not pessoa_fin and pode_usar("serpapi"):
-                        r_fin_an = buscar_serpapi(f'{termo_busca} analista coordenador financeiro linkedin', hl=None, gl=None)
-                        registrar_uso("serpapi")
+                    if not pessoa_fin:
+                        r_fin_an, usou_sa = buscar_linkedin_pessoa(f'{termo_busca} analista coordenador financeiro linkedin')
+                        if usou_sa:
+                            registrar_uso("serpapi")
                         candidato_an = extrair_pessoa_linkedin_de_resultados(
                             r_fin_an, termo_busca, termos_fin + termos_fin_analista, aceitar_analista=True)
                         if candidato_an and LUSHA_API_KEY:
@@ -1119,6 +1177,21 @@ def buscar_lead():
                                 registrar_email(pessoa_fin["email"], "lusha")
                             if pessoa_fin.get("telefone"):
                                 registrar_telefone(pessoa_fin["telefone"], "lusha")
+
+                        # Extrai LinkedIn da empresa da resposta da Lusha se ainda não temos
+                        if not linkedin_empresa:
+                            try:
+                                resultados_lusha = dados_lusha.get("results") or []
+                                for res in resultados_lusha:
+                                    comp = res.get("company") or {}
+                                    comp_domain = comp.get("domain") or dominio_site
+                                    # Monta URL do LinkedIn da empresa a partir do domínio
+                                    slug = comp_domain.replace("www.", "").split(".")[0]
+                                    if slug:
+                                        linkedin_empresa = f"https://www.linkedin.com/company/{slug}"
+                                        break
+                            except Exception:
+                                pass
 
             # ═══ NÍVEL 4 — Hunter.io ═══
             if HUNTER_API_KEY and not dados_completos(pessoa_rh, pessoa_fin) and dominio_site and pode_usar("hunter"):
