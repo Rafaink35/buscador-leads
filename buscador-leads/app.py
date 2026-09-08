@@ -442,13 +442,13 @@ def sugerir_emails_departamentais(dominio: str, emails_confirmados: list) -> lis
 # ─── NÍVEL 1 — SerpAPI ───────────────────────────────────────────────────────
 def buscar_serpapi(query: str, hl: str = "pt", gl: str = "br") -> list:
     try:
-        params = {"q": query, "api_key": SERPAPI_KEY, "engine": "google", "num": 5}
-        if hl:
-            params["hl"] = hl
-        if gl:
-            params["gl"] = gl
+        params = {"q": query, "api_key": SERPAPI_KEY, "engine": "google",
+                  "num": 5, "hl": hl or "pt", "gl": gl or "br", "safe": "off"}
         r = requests.get("https://serpapi.com/search", params=params, timeout=8)
-        return r.json().get("organic_results", [])
+        results = r.json().get("organic_results", [])
+        # Filtra /goto?url= que são artefatos do Google, não URLs reais
+        validos = [res for res in results if not (res.get("link","") or "").startswith("/goto")]
+        return validos if validos else results
     except Exception:
         return []
 
