@@ -622,7 +622,7 @@ def buscar_lusha_decisores(dominio: str) -> dict:
     """
     Decision Makers API: POST com body {"companies": [{"domain": "..."}]}
     Retorna previews gratuitos — nome, cargo, LinkedIn, departamento.
-    Emails/telefones precisam de enrich separado.
+    Emails/telefones precisam de enrich separado via buscar_lusha_enrich.
     """
     if not LUSHA_API_KEY or not dominio:
         return {}
@@ -635,12 +635,7 @@ def buscar_lusha_decisores(dominio: str) -> dict:
         )
         if r.status_code != 200:
             return {}
-        dados = r.json() or {}
-        # Resposta vem em results[0].contacts ou results[0].decisionMakers
-        resultados = dados.get("results") or []
-        if resultados:
-            return resultados[0]
-        return dados
+        return r.json() or {}
     except Exception:
         return {}
 
@@ -720,34 +715,53 @@ def validar_decisor_com_lusha(pessoa: dict, empresa_buscada: str) -> dict:
 
 def processar_lusha_decisores(dados_lusha: dict, termos_rh: list, termos_fin: list) -> tuple:
     """Extrai o melhor RH e Financeiro da resposta da Lusha Decision Makers v3.
-    Estrutura: {contacts: [{firstName, lastName, jobTitle, linkedInUrl, ...}]}
-    Os contatos são previews — emails/telefones precisam de enrich separado."""
+    Estrutura real: {results: [{companyId, decisionMakers: [{firstName, lastName, jobTitle: {title}, socialLinks: {linkedin}}]}]}
+    Os contatos são previews — emails/telefones precisam de enrich separado via LinkedIn."""
     pessoa_rh, pessoa_fin = None, None
-    # Tenta diferentes chaves que a Lusha v3 pode retornar
-    contatos = (dados_lusha.get("contacts") or
-                dados_lusha.get("decisionMakers") or
-                dados_lusha.get("data") or
-                (dados_lusha if isinstance(dados_lusha, list) else []))
+
+    # Navega na estrutura real da API v3
+    resultados = dados_lusha.get("results") or []
+    contatos = []
+    for res in resultados:
+        contatos.extend(res.get("decisionMakers") or res.get("contacts") or [])
+
+    # Fallback pra outras estruturas possíveis
+    if not contatos:
+        contatos = (dados_lusha.get("decisionMakers") or
+                    dados_lusha.get("contacts") or
+                    (dados_lusha if isinstance(dados_lusha, list) else []))
+
     for contato in contatos:
-        titulo = contato.get("jobTitle") or contato.get("title") or ""
-        nome_obj = contato.get("name") or {}
-        if isinstance(nome_obj, dict):
-            nome = f"{nome_obj.get('first','')} {nome_obj.get('last','')}".strip()
+        # jobTitle pode ser objeto ou string
+        job_obj = contato.get("jobTitle") or {}
+        if isinstance(job_obj, dict):
+            titulo = job_obj.get("title") or ""
+            departamentos = job_obj.get("departments") or []
         else:
-            nome = f"{contato.get('firstName','')} {contato.get('lastName','')}".strip()
-        linkedin = contato.get("linkedInUrl") or contato.get("linkedin") or ""
+            titulo = str(job_obj)
+            departamentos = []
+
+        nome = f"{contato.get('firstName','')} {contato.get('lastName','')}".strip()
+        social = contato.get("socialLinks") or {}
+        linkedin = social.get("linkedin") or contato.get("linkedInUrl") or ""
+
         if not nome or not titulo:
             continue
-        if not pessoa_fin and any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_fin):
+
+        # Verifica por cargo OU departamento
+        titulo_completo = titulo + " " + " ".join(departamentos)
+
+        if not pessoa_fin and any(normalizar_texto(t) in normalizar_texto(titulo_completo) for t in termos_fin):
             pessoa_fin = {"nome_cargo": f"{nome} - {titulo}", "linkedin": linkedin,
                           "email": None, "telefone": None, "confianca_li": "alta",
-                          "validado_lusha": True}
-        if not pessoa_rh and any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_rh):
+                          "validado_lusha": True, "lusha_id": contato.get("id")}
+        if not pessoa_rh and any(normalizar_texto(t) in normalizar_texto(titulo_completo) for t in termos_rh):
             pessoa_rh = {"nome_cargo": f"{nome} - {titulo}", "linkedin": linkedin,
                          "email": None, "telefone": None, "confianca_li": "alta",
-                         "validado_lusha": True}
+                         "validado_lusha": True, "lusha_id": contato.get("id")}
         if pessoa_rh and pessoa_fin:
             break
+
     return pessoa_rh, pessoa_fin
 
 
@@ -825,14 +839,21 @@ def debug():
         "lusha_key_prefixo": lusha_key[:8] + "..." if lusha_key else "VAZIO",
     }
 
-    # Testa SerpAPI com TOTVS
+    # Testa SerpAPI com TOTVS — versão corrigida com filtro de /goto
     try:
         r = requests.get("https://serpapi.com/search", params={
-            "q": "TOTVS linkedin empresa", "api_key": serpapi_key,
-            "engine": "google", "num": 5
+            "q": "TOTVS gerente financeiro linkedin",
+            "api_key": serpapi_key,
+            "engine": "google",
+            "num": 5,
+            "hl": "pt",
+            "gl": "br",
+            "safe": "off"
         }, timeout=8)
-        links = [item.get("link","") for item in r.json().get("organic_results", [])]
-        resultado["serpapi_teste_totvs"] = links[:5]
+        todos_links = [item.get("link","") for item in r.json().get("organic_results", [])]
+        links_validos = [l for l in todos_links if not l.startswith("/goto")]
+        resultado["serpapi_teste_totvs"] = todos_links[:5]
+        resultado["serpapi_links_validos"] = links_validos
         resultado["serpapi_status"] = r.status_code
     except Exception as e:
         resultado["serpapi_erro"] = str(e)
