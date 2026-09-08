@@ -206,7 +206,7 @@ def buscar_brasilapi(cnpj: str) -> dict:
     cnpj_limpo = limpar_cnpj(cnpj)
     try:
         r = requests.get(f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}",
-                          headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                          headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
         if r.status_code != 200:
             return {}
         d = r.json()
@@ -225,7 +225,7 @@ def buscar_cnpja(cnpj: str) -> dict:
     cnpj_limpo = limpar_cnpj(cnpj)
     try:
         r = requests.get(f"https://open.cnpja.com/office/{cnpj_limpo}",
-                          headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                          headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
         if r.status_code != 200:
             return {}
         d = r.json()
@@ -251,7 +251,7 @@ def buscar_cnpja(cnpj: str) -> dict:
 def buscar_receitaws(cnpj: str) -> dict:
     cnpj_limpo = limpar_cnpj(cnpj)
     try:
-        r = requests.get(f"https://receitaws.com.br/v1/cnpj/{cnpj_limpo}", timeout=15)
+        r = requests.get(f"https://receitaws.com.br/v1/cnpj/{cnpj_limpo}", timeout=8)
         if r.status_code != 200:
             return {}
         d = r.json()
@@ -355,7 +355,7 @@ def descobrir_site_via_duckduckgo(empresa: str) -> str:
         r = requests.get("https://html.duckduckgo.com/html/",
                           params={"q": f"{empresa} site oficial"},
                           headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                          timeout=10)
+                          timeout=6)
         if r.status_code != 200:
             return None
         links = re.findall(r'href="(https?://[^"]+)"', r.text)
@@ -447,7 +447,7 @@ def buscar_serpapi(query: str, hl: str = "pt", gl: str = "br") -> list:
             params["hl"] = hl
         if gl:
             params["gl"] = gl
-        r = requests.get("https://serpapi.com/search", params=params, timeout=15)
+        r = requests.get("https://serpapi.com/search", params=params, timeout=8)
         return r.json().get("organic_results", [])
     except Exception:
         return []
@@ -501,28 +501,38 @@ def escolher_linkedin_via_gemini(resultados: list, empresa: str, papel: str) -> 
 
 
 # ── CORRIGIDO: busca de LinkedIn melhorada com múltiplas estratégias ──────────
-def extrair_pessoa_linkedin_de_resultados(resultados: list, empresa: str, termos_cargo: list) -> dict:
+def extrair_pessoa_linkedin_de_resultados(resultados: list, empresa: str, termos_cargo: list, aceitar_analista: bool = False) -> dict:
     """
-    Estratégia 1: exige empresa + cargo no título (rigoroso, menos falsos positivos).
-    Estratégia 2: aceita perfil do LinkedIn se cargo aparece no snippet ou título,
-    mesmo sem o nome exato da empresa (útil quando o Google exibe só o cargo truncado).
-    Estratégia 3: qualquer perfil /in/ com cargo no título, dos top 5 resultados.
-    Mais permissiva — por isso fica por último e é marcada como baixa confiança.
+    Estratégia 1 (alta confiança): título contém 'na {empresa}' OU 'at {empresa}' E cargo bate.
+    Ex: 'Diego Matuella - Gerente de Tesouraria na TOTVS' -> aceita imediatamente.
+    Estratégia 2 (média confiança): empresa aparece no snippet E cargo no título.
+    Estratégia 3 (baixa, só se aceitar_analista=True): analista/coordenador com empresa confirmada.
     """
-    termo_empresa = termo_relacao_empresa(empresa)
+    empresa_norm = normalizar_texto(empresa)
+    empresa_lower = empresa.lower()
+    padroes_empresa_titulo = [
+        f" na {empresa_lower}",
+        f" at {empresa_lower}",
+        f"| {empresa_lower}",
+        f"- {empresa_lower}",
+    ]
 
-    # Estratégia 1 — rigorosa
-    for r in resultados[:3]:
+    # Estratégia 1 — "na EMPRESA" no título + cargo confirmado
+    for r in resultados[:5]:
         link = r.get("link", "")
         if "linkedin.com/in/" not in link:
             continue
-        titulo = r.get("title", "")
-        texto_completo = titulo + " " + r.get("snippet", "")
-        if termo_empresa not in normalizar_texto(texto_completo):
+        titulo_orig = r.get("title", "")
+        titulo_lower = titulo_orig.lower()
+        tem_empresa = any(p in titulo_lower for p in padroes_empresa_titulo)
+        if not tem_empresa:
+            tem_empresa = empresa_norm[:6] in normalizar_texto(titulo_orig)
+        if not tem_empresa:
             continue
-        if not any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_cargo):
+        tem_cargo = any(normalizar_texto(t) in normalizar_texto(titulo_orig) for t in termos_cargo)
+        if not tem_cargo:
             continue
-        partes = titulo.split(" | ")[0].split(" - ", 1)
+        partes = titulo_orig.split(" | ")[0].split(" - ", 1)
         nome = partes[0].strip()
         cargo = partes[1].strip() if len(partes) > 1 else None
         if not nome:
@@ -530,19 +540,18 @@ def extrair_pessoa_linkedin_de_resultados(resultados: list, empresa: str, termos
         return {"nome_cargo": f"{nome} - {cargo}" if cargo else nome,
                 "linkedin": link, "email": None, "telefone": None, "confianca_li": "alta"}
 
-    # Estratégia 2 — cargo no snippet ou título, empresa no snippet
+    # Estratégia 2 — empresa no snippet + cargo no título
     for r in resultados[:5]:
         link = r.get("link", "")
         if "linkedin.com/in/" not in link:
             continue
-        titulo = r.get("title", "")
+        titulo_orig = r.get("title", "")
         snippet = r.get("snippet", "")
-        texto_completo = titulo + " " + snippet
-        tem_cargo = any(normalizar_texto(t) in normalizar_texto(texto_completo) for t in termos_cargo)
-        empresa_no_snippet = termo_empresa[:5] in normalizar_texto(snippet)
-        if not tem_cargo or not empresa_no_snippet:
+        tem_empresa_snippet = empresa_norm[:6] in normalizar_texto(snippet)
+        tem_cargo = any(normalizar_texto(t) in normalizar_texto(titulo_orig) for t in termos_cargo)
+        if not tem_empresa_snippet or not tem_cargo:
             continue
-        partes = titulo.split(" | ")[0].split(" - ", 1)
+        partes = titulo_orig.split(" | ")[0].split(" - ", 1)
         nome = partes[0].strip()
         cargo = partes[1].strip() if len(partes) > 1 else None
         if not nome:
@@ -550,23 +559,29 @@ def extrair_pessoa_linkedin_de_resultados(resultados: list, empresa: str, termos
         return {"nome_cargo": f"{nome} - {cargo}" if cargo else nome,
                 "linkedin": link, "email": None, "telefone": None, "confianca_li": "media"}
 
-    # Estratégia 3 — qualquer perfil com cargo (mais permissiva, marcada)
-    for r in resultados[:5]:
-        link = r.get("link", "")
-        if "linkedin.com/in/" not in link:
-            continue
-        titulo = r.get("title", "")
-        if not any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_cargo):
-            continue
-        partes = titulo.split(" | ")[0].split(" - ", 1)
-        nome = partes[0].strip()
-        cargo = partes[1].strip() if len(partes) > 1 else None
-        if not nome:
-            continue
-        return {"nome_cargo": f"{nome} - {cargo} (verificar empresa)" if cargo else nome,
-                "linkedin": link, "email": None, "telefone": None, "confianca_li": "baixa"}
+    # Estratégia 3 — analista/coordenador quando aceitar_analista=True
+    if aceitar_analista:
+        for r in resultados[:5]:
+            link = r.get("link", "")
+            if "linkedin.com/in/" not in link:
+                continue
+            titulo_orig = r.get("title", "")
+            snippet = r.get("snippet", "")
+            tem_empresa = (empresa_norm[:6] in normalizar_texto(titulo_orig) or
+                           empresa_norm[:6] in normalizar_texto(snippet))
+            tem_cargo = any(normalizar_texto(t) in normalizar_texto(titulo_orig) for t in termos_cargo)
+            if not tem_empresa or not tem_cargo:
+                continue
+            partes = titulo_orig.split(" | ")[0].split(" - ", 1)
+            nome = partes[0].strip()
+            cargo = partes[1].strip() if len(partes) > 1 else None
+            if not nome:
+                continue
+            return {"nome_cargo": f"{nome} - {cargo} ⚠️ analista" if cargo else nome,
+                    "linkedin": link, "email": None, "telefone": None, "confianca_li": "baixa"}
 
     return None
+
 
 def extrair_linkedin_empresa(resultados: list) -> str:
     for r in resultados:
@@ -691,7 +706,7 @@ def buscar_hunter_email(nome_completo: str, dominio: str) -> dict:
         r = requests.get("https://api.hunter.io/v2/email-finder", params={
             "domain": dominio, "first_name": primeiro, "last_name": ultimo or primeiro,
             "api_key": HUNTER_API_KEY
-        }, timeout=15)
+        }, timeout=8)
         if r.status_code != 200:
             return {}
         dados = (r.json() or {}).get("data") or {}
@@ -803,10 +818,16 @@ def buscar_lead():
             termos_rh = ["RH","Recursos Humanos","Gerente de RH","Diretor de RH","Head de RH",
                          "HR","Human Resources","People","People Ops","Talent","Head of People",
                          "People and Culture","Head de Pessoas","Gerente de Pessoas"]
+            termos_rh_analista = ["Analista de RH","Analista de Recursos Humanos","Analista de People",
+                                   "Analista de Gente","Especialista de RH","Coordenador de RH",
+                                   "Coordenador de Pessoas","BP de RH","Business Partner"]
             termos_fin = ["Financeiro","CFO","Diretor Financeiro","Gerente Financeiro","Controller",
                           "Chief Financial Officer","Finance","VP Finance","Head of Finance",
                           "Tesouraria","Tesoureiro","Controladoria","Head Financeiro",
                           "Gerente de Tesouraria","Diretor de Finanças"]
+            termos_fin_analista = ["Analista Financeiro","Analista de Controladoria","Analista de Tesouraria",
+                                    "Especialista Financeiro","Coordenador Financeiro","Analista de Finanças",
+                                    "Analista Contábil","Coordenador de Controladoria"]
 
             # ═══ NÍVEL 0 — Receita + site (grátis) ═══
             if eh_cnpj(entrada):
@@ -870,7 +891,6 @@ def buscar_lead():
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
-                    # Formato "Empresa cargo" funciona melhor que "cargo Empresa linkedin"
                     r_rh = buscar_serpapi(f'{termo_busca} gerente de RH', hl=None, gl=None)
                     if not r_rh or not any("linkedin.com/in/" in r.get("link","") for r in r_rh):
                         r_rh = buscar_serpapi(f'{termo_busca} head de pessoas recursos humanos linkedin', hl=None, gl=None)
@@ -881,6 +901,12 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_rh:
                         pessoa_rh = extrair_pessoa_linkedin_de_resultados(r_rh, termo_busca, termos_rh)
+                    # fallback: analista/coordenador de RH
+                    if not pessoa_rh and pode_usar("serpapi"):
+                        r_rh_an = buscar_serpapi(f'{termo_busca} analista coordenador RH linkedin', hl=None, gl=None)
+                        registrar_uso("serpapi")
+                        pessoa_rh = extrair_pessoa_linkedin_de_resultados(
+                            r_rh_an, termo_busca, termos_rh + termos_rh_analista, aceitar_analista=True)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
                     r_fin = buscar_serpapi(f'{termo_busca} gerente financeiro', hl=None, gl=None)
@@ -893,6 +919,12 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_fin:
                         pessoa_fin = extrair_pessoa_linkedin_de_resultados(r_fin, termo_busca, termos_fin)
+                    # fallback: analista/coordenador financeiro
+                    if not pessoa_fin and pode_usar("serpapi"):
+                        r_fin_an = buscar_serpapi(f'{termo_busca} analista coordenador financeiro linkedin', hl=None, gl=None)
+                        registrar_uso("serpapi")
+                        pessoa_fin = extrair_pessoa_linkedin_de_resultados(
+                            r_fin_an, termo_busca, termos_fin + termos_fin_analista, aceitar_analista=True)
 
             # ═══ NÍVEL 2 — Apify ═══
             if not dados_completos(pessoa_rh, pessoa_fin) and linkedin_empresa and pode_usar("apify"):
