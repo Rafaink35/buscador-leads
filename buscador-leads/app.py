@@ -643,7 +643,7 @@ def buscar_lusha_decisores(dominio: str) -> dict:
 def buscar_lusha_enrich(linkedin_url: str) -> dict:
     """
     Search & Enrich: dado o LinkedIn de uma pessoa já identificada, retorna
-    email e telefone direto — muito mais preciso que qualquer outra fonte.
+    email, telefone e empresa atual — usado como VALIDADOR oficial.
     Gasta 1 crédito por email revelado + 5 por telefone.
     """
     if not LUSHA_API_KEY or not linkedin_url:
@@ -666,9 +666,53 @@ def buscar_lusha_enrich(linkedin_url: str) -> dict:
             raw = p.get("internationalNumber") or p.get("localNumber") or ""
             if raw and telefone_plausivel(raw):
                 telefone = raw
-        return {"email": email, "telefone": telefone}
+        # Empresa atual retornada pela Lusha (usada pra validar)
+        empresa_atual = (dados.get("currentJobTitle") or
+                         (dados.get("positions") or [{}])[0].get("companyName") or
+                         dados.get("companyName") or "")
+        return {"email": email, "telefone": telefone, "empresa_atual": empresa_atual.lower()}
     except Exception:
         return {}
+
+
+def validar_decisor_com_lusha(pessoa: dict, empresa_buscada: str) -> dict:
+    """
+    Usa a Lusha como validador oficial:
+    1. Chama search-and-enrich com o LinkedIn já encontrado
+    2. Verifica se a empresa atual retornada bate com a empresa buscada
+    3. Se bater: retorna pessoa enriquecida com email/telefone (alta confiança)
+    4. Se não bater: retorna None (pessoa errada, descarta)
+    5. Se Lusha não tiver dados: retorna pessoa original sem validação
+    """
+    if not pessoa or not pessoa.get("linkedin"):
+        return pessoa
+    if not LUSHA_API_KEY or not pode_usar("lusha"):
+        return pessoa  # sem cota, retorna sem validar
+
+    enrich = buscar_lusha_enrich(pessoa["linkedin"])
+    registrar_uso("lusha")
+
+    if not enrich:
+        # Lusha não achou — mantém pessoa mas marca como não validada
+        pessoa["validado_lusha"] = False
+        return pessoa
+
+    empresa_atual = enrich.get("empresa_atual", "")
+    empresa_norm = normalizar_texto(empresa_buscada)[:8]
+
+    if empresa_atual and empresa_norm and empresa_norm not in normalizar_texto(empresa_atual):
+        # Empresa não bate — pessoa errada, descarta
+        return None
+
+    # Empresa confirmada — enriquece com contatos reais
+    if enrich.get("email"):
+        pessoa["email"] = enrich["email"]
+    if enrich.get("telefone"):
+        pessoa["telefone"] = enrich["telefone"]
+    pessoa["confianca_li"] = "alta"
+    pessoa["validado_lusha"] = True
+    return pessoa
+
 
 def processar_lusha_decisores(dados_lusha: dict, termos_rh: list, termos_fin: list) -> tuple:
     """Extrai o melhor RH e Financeiro da resposta da Lusha Decision Makers."""
@@ -901,12 +945,20 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_rh:
                         pessoa_rh = extrair_pessoa_linkedin_de_resultados(r_rh, termo_busca, termos_rh)
+                    # ── Lusha valida imediatamente o candidato encontrado ──
+                    if pessoa_rh and LUSHA_API_KEY:
+                        pessoa_rh = validar_decisor_com_lusha(pessoa_rh, termo_busca)
+                        if pessoa_rh:
+                            niveis_usados.append("lusha:validacao")
                     # fallback: analista/coordenador de RH
                     if not pessoa_rh and pode_usar("serpapi"):
                         r_rh_an = buscar_serpapi(f'{termo_busca} analista coordenador RH linkedin', hl=None, gl=None)
                         registrar_uso("serpapi")
-                        pessoa_rh = extrair_pessoa_linkedin_de_resultados(
+                        candidato_an = extrair_pessoa_linkedin_de_resultados(
                             r_rh_an, termo_busca, termos_rh + termos_rh_analista, aceitar_analista=True)
+                        if candidato_an and LUSHA_API_KEY:
+                            candidato_an = validar_decisor_com_lusha(candidato_an, termo_busca)
+                        pessoa_rh = candidato_an
 
                 if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
                     r_fin = buscar_serpapi(f'{termo_busca} gerente financeiro', hl=None, gl=None)
@@ -919,12 +971,20 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_fin:
                         pessoa_fin = extrair_pessoa_linkedin_de_resultados(r_fin, termo_busca, termos_fin)
+                    # ── Lusha valida imediatamente o candidato encontrado ──
+                    if pessoa_fin and LUSHA_API_KEY:
+                        pessoa_fin = validar_decisor_com_lusha(pessoa_fin, termo_busca)
+                        if pessoa_fin:
+                            niveis_usados.append("lusha:validacao")
                     # fallback: analista/coordenador financeiro
                     if not pessoa_fin and pode_usar("serpapi"):
                         r_fin_an = buscar_serpapi(f'{termo_busca} analista coordenador financeiro linkedin', hl=None, gl=None)
                         registrar_uso("serpapi")
-                        pessoa_fin = extrair_pessoa_linkedin_de_resultados(
+                        candidato_an = extrair_pessoa_linkedin_de_resultados(
                             r_fin_an, termo_busca, termos_fin + termos_fin_analista, aceitar_analista=True)
+                        if candidato_an and LUSHA_API_KEY:
+                            candidato_an = validar_decisor_com_lusha(candidato_an, termo_busca)
+                        pessoa_fin = candidato_an
 
             # ═══ NÍVEL 2 — Apify ═══
             if not dados_completos(pessoa_rh, pessoa_fin) and linkedin_empresa and pode_usar("apify"):
@@ -944,14 +1004,14 @@ def buscar_lead():
                         if pessoa and pessoa.get("email") and not registrar_email(pessoa["email"], "apify"):
                             pessoa["email"] = None
 
-            # ═══ NÍVEL 3 — Lusha ═══
-            # 3a: se já temos o LinkedIn do decisor, usa Search & Enrich (mais preciso, menos créditos)
-            # 3b: se não temos nenhum decisor, usa Decision Makers pelo domínio
+            # ═══ NÍVEL 3 — Lusha Decision Makers ═══
+            # Só entra aqui se ainda não temos decisores após Google + Apify
+            # A validação individual já foi feita inline no nível 1
             if LUSHA_API_KEY and not dados_completos(pessoa_rh, pessoa_fin) and pode_usar("lusha"):
-                niveis_usados.append("lusha")
+                niveis_usados.append("lusha:decision-makers")
 
-                # 3a — enriquece quem já foi encontrado mas sem contato
-                for pessoa, papel in [(pessoa_rh, "rh"), (pessoa_fin, "financeiro")]:
+                # Enriquece quem foi achado pelo Apify mas sem contato
+                for pessoa in [pessoa_rh, pessoa_fin]:
                     if pessoa and not pessoa_completa(pessoa) and pessoa.get("linkedin") and pode_usar("lusha"):
                         achou = buscar_lusha_enrich(pessoa["linkedin"])
                         registrar_uso("lusha")
@@ -960,7 +1020,7 @@ def buscar_lead():
                         if achou.get("telefone") and registrar_telefone(achou["telefone"], "lusha"):
                             pessoa["telefone"] = achou["telefone"]
 
-                # 3b — decision makers pelo domínio quando não achamos ninguém
+                # Decision Makers pelo domínio quando não achamos ninguém ainda
                 if dominio_site and (not pessoa_rh or not pessoa_fin) and pode_usar("lusha"):
                     dados_lusha = buscar_lusha_decisores(dominio_site)
                     registrar_uso("lusha")
