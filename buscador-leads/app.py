@@ -275,13 +275,26 @@ def buscar_receita(cnpj: str) -> dict:
 
 
 # ─── NÍVEL 0 — Site oficial (grátis) ─────────────────────────────────────────
-TLDS_TENTATIVA_DIRETA = ['.com.br', '.com', '.ai', '.io', '.co', '.net']
+TLDS_TENTATIVA_DIRETA = ['.com.br', '.com', '.ai', '.io', '.co', '.net',
+                          '.app', '.tech', '.digital', '.online', '.store', '.cloud']
+TLDS_CONHECIDOS = ['.com.br', '.com', '.com.ar', '.com.mx', '.org.br', '.org',
+                   '.net.br', '.net', '.ai', '.io', '.co', '.app', '.tech',
+                   '.digital', '.online', '.store', '.site', '.cloud']
 SINAIS_PAGINA_INVALIDA = ["just a moment", "enable javascript and cookies",
                            "domain is for sale", "buy this domain", "parked domain"]
 
 def parece_dominio(texto: str) -> bool:
     texto = texto.strip()
     return " " not in texto and bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9-]+)+$', texto))
+
+def remover_tld(empresa: str) -> str:
+    """Remove o TLD antes de normalizar — 'blip.ai' -> 'blip', nao 'blipai'.
+    Evita gerar slugs errados como 'blipai.com.br' quando a entrada e um dominio."""
+    empresa_lower = empresa.lower().strip()
+    for tld in sorted(TLDS_CONHECIDOS, key=len, reverse=True):
+        if empresa_lower.endswith(tld):
+            return empresa_lower[:-len(tld)]
+    return empresa_lower
 
 def validar_candidato_site(url: str, termo_esperado: str, exigir_termo: bool = True) -> str:
     try:
@@ -303,6 +316,11 @@ def validar_candidato_site(url: str, termo_esperado: str, exigir_termo: bool = T
     return None
 
 def gerar_variacoes_slug(empresa: str) -> list:
+    # Se parece domínio (blip.ai, totvs.com.br), usa só o nome sem o TLD
+    if parece_dominio(empresa):
+        slug_base = normalizar_texto(remover_tld(empresa))
+        return [slug_base] if slug_base else []
+
     palavras = re.sub(r'[^a-zA-Z0-9\s]', '', empresa).split()
     ignorar = {'ltda','sa','eireli','me','epp','equipamentos','comercio','industria',
                'servicos','solucoes','grupo','brasil','lojas','cia','companhia','rede'}
@@ -783,9 +801,12 @@ def buscar_lead():
             telefones_site, emails_site = [], []
 
             termos_rh = ["RH","Recursos Humanos","Gerente de RH","Diretor de RH","Head de RH",
-                         "HR","Human Resources","People","People Ops","Talent","Head of People"]
+                         "HR","Human Resources","People","People Ops","Talent","Head of People",
+                         "People and Culture","Head de Pessoas","Gerente de Pessoas"]
             termos_fin = ["Financeiro","CFO","Diretor Financeiro","Gerente Financeiro","Controller",
-                          "Chief Financial Officer","Finance","VP Finance","Head of Finance"]
+                          "Chief Financial Officer","Finance","VP Finance","Head of Finance",
+                          "Tesouraria","Tesoureiro","Controladoria","Head Financeiro",
+                          "Gerente de Tesouraria","Diretor de Finanças"]
 
             # ═══ NÍVEL 0 — Receita + site (grátis) ═══
             if eh_cnpj(entrada):
@@ -808,6 +829,13 @@ def buscar_lead():
                         registrar_email(em_extra.lower(), "receita")
 
             termo_busca = empresa_nome if empresa_nome != entrada else entrada
+
+            # domínio de referência para filtrar emails — prioriza o site descoberto,
+            # mas se a entrada já era um domínio (ex: blip.ai), usa ela diretamente
+            dominio_referencia_email = ""
+            if parece_dominio(entrada):
+                dominio_referencia_email = entrada.strip().lower().replace("www.", "")
+
             site = descobrir_site(termo_busca)
             if site:
                 extra = extrair_emails_telefones_do_site(site)
@@ -819,6 +847,8 @@ def buscar_lead():
                     registrar_telefone(t, "site")
 
             dominio_site = extrair_dominio_de_url(site) if site else ""
+            # domínio final para comparação de emails (site tem prioridade sobre entrada)
+            dominio_email_ref = dominio_site or dominio_referencia_email
 
             # ═══ NÍVEL 1 — SerpAPI ═══
             if not dados_completos(pessoa_rh, pessoa_fin) and pode_usar("serpapi"):
@@ -840,7 +870,10 @@ def buscar_lead():
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
-                    r_rh = buscar_serpapi(f'RH {termo_busca} linkedin', hl=None, gl=None)
+                    # Formato "Empresa cargo" funciona melhor que "cargo Empresa linkedin"
+                    r_rh = buscar_serpapi(f'{termo_busca} gerente de RH', hl=None, gl=None)
+                    if not r_rh or not any("linkedin.com/in/" in r.get("link","") for r in r_rh):
+                        r_rh = buscar_serpapi(f'{termo_busca} head de pessoas recursos humanos linkedin', hl=None, gl=None)
                     registrar_uso("serpapi")
                     pessoa_rh = None
                     if GEMINI_API_KEY and pode_usar("gemini"):
@@ -850,7 +883,9 @@ def buscar_lead():
                         pessoa_rh = extrair_pessoa_linkedin_de_resultados(r_rh, termo_busca, termos_rh)
 
                 if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
-                    r_fin = buscar_serpapi(f'financeiro {termo_busca} linkedin', hl=None, gl=None)
+                    r_fin = buscar_serpapi(f'{termo_busca} gerente financeiro', hl=None, gl=None)
+                    if not r_fin or not any("linkedin.com/in/" in r.get("link","") for r in r_fin):
+                        r_fin = buscar_serpapi(f'{termo_busca} CFO diretor financeiro controller linkedin', hl=None, gl=None)
                     registrar_uso("serpapi")
                     pessoa_fin = None
                     if GEMINI_API_KEY and pode_usar("gemini"):
@@ -944,7 +979,7 @@ def buscar_lead():
             emails_encontrados = list(emails_fontes.keys())
             emails_classificados, emails_nao_verificados = [], []
             for e in emails_encontrados[:8]:
-                confianca = avaliar_confianca_email(e, dominio_site, razao_social)
+                confianca = avaliar_confianca_email(e, dominio_email_ref, razao_social)
                 fontes = emails_fontes[e]
                 registro = {
                     "email": e,
@@ -987,7 +1022,7 @@ def buscar_lead():
                         tc["confianca"] = "baixa"
                         tc["motivo"] = "cadastro da Receita aparenta ser do contador"
 
-            sugestoes = sugerir_emails_departamentais(site, [e["email"] for e in emails_classificados])
+            sugestoes = sugerir_emails_departamentais(dominio_email_ref or site, [e["email"] for e in emails_classificados])
             todos_contatos_ja_existem = bool(
                 (emails_brutos or telefones_brutos) and not emails_encontrados and not telefones_fontes
             )
