@@ -799,6 +799,45 @@ def buscar_phantombuster_funcionarios(linkedin_empresa_url: str, tempo_maximo_s:
         return []
 
 
+@app.route("/debug")
+def debug():
+    """Endpoint de diagnóstico — remove do código em produção."""
+    import os
+    serpapi_key = os.getenv("SERPAPI_KEY", "")
+    lusha_key = os.getenv("LUSHA_API_KEY", "")
+
+    resultado = {
+        "serpapi_configurado": bool(serpapi_key),
+        "lusha_configurado": bool(lusha_key),
+        "serpapi_key_prefixo": serpapi_key[:8] + "..." if serpapi_key else "VAZIO",
+        "lusha_key_prefixo": lusha_key[:8] + "..." if lusha_key else "VAZIO",
+    }
+
+    # Testa SerpAPI com TOTVS
+    try:
+        r = requests.get("https://serpapi.com/search", params={
+            "q": "TOTVS linkedin empresa", "api_key": serpapi_key,
+            "engine": "google", "num": 5
+        }, timeout=8)
+        links = [item.get("link","") for item in r.json().get("organic_results", [])]
+        resultado["serpapi_teste_totvs"] = links[:5]
+        resultado["serpapi_status"] = r.status_code
+    except Exception as e:
+        resultado["serpapi_erro"] = str(e)
+
+    # Testa Lusha
+    try:
+        r = requests.get("https://api.lusha.com/v3/contacts/decision-makers",
+                          headers={"api_key": lusha_key},
+                          params={"domain": "totvs.com"}, timeout=8)
+        resultado["lusha_status"] = r.status_code
+        resultado["lusha_resposta"] = str(r.json())[:500]
+    except Exception as e:
+        resultado["lusha_erro"] = str(e)
+
+    return jsonify(resultado)
+
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -929,12 +968,19 @@ def buscar_lead():
                     if telefone_plausivel(t):
                         registrar_telefone(t, "serpapi")
 
+                # Busca LinkedIn da empresa — sem aspas funciona melhor
                 if pode_usar("serpapi"):
-                    r_li = buscar_serpapi(f'"{termo_busca}" site:linkedin.com/company')
+                    r_li = buscar_serpapi(f'{termo_busca} linkedin empresa', hl=None, gl=None)
                     registrar_uso("serpapi")
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
+                    # fallback: tenta com site: se não achou
+                    if not linkedin_empresa and pode_usar("serpapi"):
+                        r_li2 = buscar_serpapi(f'site:linkedin.com/company {termo_busca}', hl=None, gl=None)
+                        registrar_uso("serpapi")
+                        linkedin_empresa = extrair_linkedin_empresa(r_li2)
 
-                if linkedin_empresa and not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
+                # Busca de decisores — roda independente de ter achado o LinkedIn da empresa
+                if not pessoa_completa(pessoa_rh) and pode_usar("serpapi"):
                     r_rh = buscar_serpapi(f'{termo_busca} gerente de RH', hl=None, gl=None)
                     if not r_rh or not any("linkedin.com/in/" in r.get("link","") for r in r_rh):
                         r_rh = buscar_serpapi(f'{termo_busca} head de pessoas recursos humanos linkedin', hl=None, gl=None)
@@ -945,12 +991,12 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_rh:
                         pessoa_rh = extrair_pessoa_linkedin_de_resultados(r_rh, termo_busca, termos_rh)
-                    # ── Lusha valida imediatamente o candidato encontrado ──
+                    # Lusha valida imediatamente
                     if pessoa_rh and LUSHA_API_KEY:
                         pessoa_rh = validar_decisor_com_lusha(pessoa_rh, termo_busca)
                         if pessoa_rh:
                             niveis_usados.append("lusha:validacao")
-                    # fallback: analista/coordenador de RH
+                    # fallback analista RH
                     if not pessoa_rh and pode_usar("serpapi"):
                         r_rh_an = buscar_serpapi(f'{termo_busca} analista coordenador RH linkedin', hl=None, gl=None)
                         registrar_uso("serpapi")
@@ -960,7 +1006,7 @@ def buscar_lead():
                             candidato_an = validar_decisor_com_lusha(candidato_an, termo_busca)
                         pessoa_rh = candidato_an
 
-                if linkedin_empresa and not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
+                if not pessoa_completa(pessoa_fin) and pode_usar("serpapi"):
                     r_fin = buscar_serpapi(f'{termo_busca} gerente financeiro', hl=None, gl=None)
                     if not r_fin or not any("linkedin.com/in/" in r.get("link","") for r in r_fin):
                         r_fin = buscar_serpapi(f'{termo_busca} CFO diretor financeiro controller linkedin', hl=None, gl=None)
@@ -971,12 +1017,12 @@ def buscar_lead():
                         registrar_uso("gemini")
                     if not pessoa_fin:
                         pessoa_fin = extrair_pessoa_linkedin_de_resultados(r_fin, termo_busca, termos_fin)
-                    # ── Lusha valida imediatamente o candidato encontrado ──
+                    # Lusha valida imediatamente
                     if pessoa_fin and LUSHA_API_KEY:
                         pessoa_fin = validar_decisor_com_lusha(pessoa_fin, termo_busca)
                         if pessoa_fin:
                             niveis_usados.append("lusha:validacao")
-                    # fallback: analista/coordenador financeiro
+                    # fallback analista Financeiro
                     if not pessoa_fin and pode_usar("serpapi"):
                         r_fin_an = buscar_serpapi(f'{termo_busca} analista coordenador financeiro linkedin', hl=None, gl=None)
                         registrar_uso("serpapi")
