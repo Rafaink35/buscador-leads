@@ -620,23 +620,27 @@ def filtrar_cargo_na_lista(funcionarios: list, termos_cargo: list) -> dict:
 # ─── NÍVEL 3 — Lusha ──────────────────────────────────────────────────────────
 def buscar_lusha_decisores(dominio: str) -> dict:
     """
-    Decision Makers API: retorna os decisores mais relevantes da empresa pelo domínio.
-    Usa quando não temos nome da pessoa — a Lusha descobre ela.
-    Gasta ~2-5 créditos dependendo de quantos perfis retorna.
+    Decision Makers API: POST com body {"companies": [{"domain": "..."}]}
+    Retorna previews gratuitos — nome, cargo, LinkedIn, departamento.
+    Emails/telefones precisam de enrich separado.
     """
     if not LUSHA_API_KEY or not dominio:
         return {}
     try:
-        r = requests.get(
+        r = requests.post(
             "https://api.lusha.com/v3/contacts/decision-makers",
             headers={"api_key": LUSHA_API_KEY, "Content-Type": "application/json"},
-            params={"domain": dominio},
-            timeout=20
+            json={"companies": [{"domain": dominio}]},
+            timeout=15
         )
         if r.status_code != 200:
             return {}
         dados = r.json() or {}
-        return dados.get("data") or dados
+        # Resposta vem em results[0].contacts ou results[0].decisionMakers
+        resultados = dados.get("results") or []
+        if resultados:
+            return resultados[0]
+        return dados
     except Exception:
         return {}
 
@@ -715,25 +719,33 @@ def validar_decisor_com_lusha(pessoa: dict, empresa_buscada: str) -> dict:
 
 
 def processar_lusha_decisores(dados_lusha: dict, termos_rh: list, termos_fin: list) -> tuple:
-    """Extrai o melhor RH e Financeiro da resposta da Lusha Decision Makers."""
+    """Extrai o melhor RH e Financeiro da resposta da Lusha Decision Makers v3.
+    Estrutura: {contacts: [{firstName, lastName, jobTitle, linkedInUrl, ...}]}
+    Os contatos são previews — emails/telefones precisam de enrich separado."""
     pessoa_rh, pessoa_fin = None, None
-    contatos = dados_lusha if isinstance(dados_lusha, list) else (dados_lusha.get("contacts") or [])
+    # Tenta diferentes chaves que a Lusha v3 pode retornar
+    contatos = (dados_lusha.get("contacts") or
+                dados_lusha.get("decisionMakers") or
+                dados_lusha.get("data") or
+                (dados_lusha if isinstance(dados_lusha, list) else []))
     for contato in contatos:
         titulo = contato.get("jobTitle") or contato.get("title") or ""
-        nome = f"{contato.get('firstName','')} {contato.get('lastName','')}".strip()
+        nome_obj = contato.get("name") or {}
+        if isinstance(nome_obj, dict):
+            nome = f"{nome_obj.get('first','')} {nome_obj.get('last','')}".strip()
+        else:
+            nome = f"{contato.get('firstName','')} {contato.get('lastName','')}".strip()
         linkedin = contato.get("linkedInUrl") or contato.get("linkedin") or ""
-        emails = contato.get("emailAddresses") or []
-        email = emails[0].get("value","").lower() if emails else None
-        phones = contato.get("phoneNumbers") or []
-        telefone = phones[0].get("internationalNumber","") if phones else None
         if not nome or not titulo:
             continue
         if not pessoa_fin and any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_fin):
             pessoa_fin = {"nome_cargo": f"{nome} - {titulo}", "linkedin": linkedin,
-                          "email": email, "telefone": telefone, "confianca_li": "alta"}
+                          "email": None, "telefone": None, "confianca_li": "alta",
+                          "validado_lusha": True}
         if not pessoa_rh and any(normalizar_texto(t) in normalizar_texto(titulo) for t in termos_rh):
             pessoa_rh = {"nome_cargo": f"{nome} - {titulo}", "linkedin": linkedin,
-                         "email": email, "telefone": telefone, "confianca_li": "alta"}
+                         "email": None, "telefone": None, "confianca_li": "alta",
+                         "validado_lusha": True}
         if pessoa_rh and pessoa_fin:
             break
     return pessoa_rh, pessoa_fin
@@ -825,13 +837,15 @@ def debug():
     except Exception as e:
         resultado["serpapi_erro"] = str(e)
 
-    # Testa Lusha
+    # Testa Lusha com POST correto
     try:
-        r = requests.get("https://api.lusha.com/v3/contacts/decision-makers",
-                          headers={"api_key": lusha_key},
-                          params={"domain": "totvs.com"}, timeout=8)
+        r = requests.post(
+            "https://api.lusha.com/v3/contacts/decision-makers",
+            headers={"api_key": lusha_key, "Content-Type": "application/json"},
+            json={"companies": [{"domain": "totvs.com"}]},
+            timeout=8)
         resultado["lusha_status"] = r.status_code
-        resultado["lusha_resposta"] = str(r.json())[:500]
+        resultado["lusha_resposta"] = str(r.json())[:800]
     except Exception as e:
         resultado["lusha_erro"] = str(e)
 
@@ -968,12 +982,12 @@ def buscar_lead():
                     if telefone_plausivel(t):
                         registrar_telefone(t, "serpapi")
 
-                # Busca LinkedIn da empresa — sem aspas funciona melhor
+                # Busca LinkedIn da empresa — sem aspas e com localização BR
                 if pode_usar("serpapi"):
-                    r_li = buscar_serpapi(f'{termo_busca} linkedin empresa', hl=None, gl=None)
+                    r_li = buscar_serpapi(f'{termo_busca} linkedin empresa')
                     registrar_uso("serpapi")
                     linkedin_empresa = extrair_linkedin_empresa(r_li)
-                    # fallback: tenta com site: se não achou
+                    # fallback sem hl/gl se não achou
                     if not linkedin_empresa and pode_usar("serpapi"):
                         r_li2 = buscar_serpapi(f'site:linkedin.com/company {termo_busca}', hl=None, gl=None)
                         registrar_uso("serpapi")
