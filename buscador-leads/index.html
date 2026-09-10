@@ -261,9 +261,11 @@ async function buscar() {
 
       document.getElementById('r-li-empresa-wrap').innerHTML = linkOuTexto(data.linkedin_empresa, data.linkedin_empresa && data.linkedin_empresa.startsWith('http') ? data.linkedin_empresa : null);
       document.getElementById('r-li-rh-wrap').innerHTML = linkOuTexto(data.linkedin_rh, data.linkedin_rh_url)
-        + (data.rh_email ? `<div class="item-email"><span>${data.rh_email}</span></div>` : '');
+        + (data.rh_email ? `<div class="item-email"><span>${data.rh_email}</span></div>` : '')
+        + (data.rh_whatsapp ? `<div class="item-novo"><span>📱 ${data.rh_whatsapp}</span><span class="badge-novo">WhatsApp RH</span></div>` : '');
       document.getElementById('r-li-fin-wrap').innerHTML = linkOuTexto(data.linkedin_financeiro, data.linkedin_financeiro_url)
-        + (data.financeiro_email ? `<div class="item-email"><span>${data.financeiro_email}</span></div>` : '');
+        + (data.financeiro_email ? `<div class="item-email"><span>${data.financeiro_email}</span></div>` : '')
+        + (data.financeiro_whatsapp ? `<div class="item-novo"><span>📱 ${data.financeiro_whatsapp}</span><span class="badge-novo">WhatsApp Fin</span></div>` : '');
 
       document.getElementById('r-socios').innerHTML = (!data.socios || data.socios.length === 0)
         ? '<div class="empty-msg">Não disponível (informe um CNPJ)</div>'
