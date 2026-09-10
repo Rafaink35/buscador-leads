@@ -333,7 +333,7 @@ def descobrir_site(empresa: str) -> str:
 def extrair_contatos_do_site(url_base: str) -> dict:
     paginas = ["","/contato","/fale-conosco","/sobre","/atendimento","/contact",
                "/contatos","/quem-somos","/institucional","/financeiro","/fornecedores"]
-    emails, telefones = [], []
+    emails, telefones, whatsapp = [], [], []
     for pagina in paginas:
         try:
             r = requests.get(url_base.rstrip("/")+pagina,
@@ -350,7 +350,7 @@ def extrair_contatos_do_site(url_base: str) -> dict:
                       r'0800\s?\d{3}\s?\d{4}']:
                 candidatos = re.findall(p, texto)
                 telefones += [t for t in candidatos if t.startswith('0800') or telefone_plausivel(t)]
-            # WhatsApp
+            # WhatsApp — fica separado dos telefones, não misturado
             wa = re.findall(r'(?:wa\.me/|api\.whatsapp\.com/send\?phone=)(\+?55\d{10,11})', texto)
             for num in wa:
                 num = re.sub(r'\D','',num)
@@ -358,12 +358,13 @@ def extrair_contatos_do_site(url_base: str) -> dict:
                     num = num[2:]
                 if telefone_plausivel(num):
                     ddd, resto = num[:2], num[2:]
-                    telefones.append(f"({ddd}) {resto[:5]}-{resto[5:]}" if len(resto)==9
+                    whatsapp.append(f"({ddd}) {resto[:5]}-{resto[5:]}" if len(resto)==9
                                      else f"({ddd}) {resto[:4]}-{resto[4:]}")
         except Exception:
             continue
     return {"emails": list(dict.fromkeys(emails))[:5],
-            "telefones": list(dict.fromkeys(telefones))[:5]}
+            "telefones": list(dict.fromkeys(telefones))[:5],
+            "whatsapp": list(dict.fromkeys(whatsapp))[:5]}
 
 def sugerir_emails_departamentais(dominio: str, emails_confirmados: list) -> list:
     if not dominio:
@@ -376,6 +377,19 @@ def sugerir_emails_departamentais(dominio: str, emails_confirmados: list) -> lis
 
 
 # ─── NÍVEL 1 — SerpAPI + DuckDuckGo ──────────────────────────────────────────
+# Quando o Google retorna um knowledge panel em vez de resultados orgânicos "puros",
+# o SerpAPI às vezes devolve links internos de navegação (ex.: "/goto?url=...", "/url?q=...",
+# páginas de cache) em vez do destino real. Esses links nunca são úteis, então descartamos
+# qualquer coisa que não seja uma URL absoluta apontando para fora do próprio Google.
+HOSTS_INTERNOS_GOOGLE = ("google.com", "google.com.br", "webcache.googleusercontent.com")
+
+def link_valido_serp(link: str) -> bool:
+    link = (link or "").strip()
+    if not link.startswith(("http://", "https://")):
+        return False
+    dominio = extrair_dominio_de_url(link)
+    return not any(dominio == h or dominio.endswith("." + h) for h in HOSTS_INTERNOS_GOOGLE)
+
 def buscar_serpapi(query: str) -> list:
     if not SERPAPI_KEY:
         return []
@@ -385,7 +399,7 @@ def buscar_serpapi(query: str) -> list:
             "num": 5, "hl": "pt", "gl": "br", "safe": "off"
         }, timeout=8)
         results = r.json().get("organic_results", [])
-        return [res for res in results if not (res.get("link","") or "").startswith("/goto")]
+        return [res for res in results if link_valido_serp(res.get("link",""))]
     except Exception:
         return []
 
@@ -602,7 +616,7 @@ def debug():
         }, timeout=8)
         links = [x.get("link","") for x in r.json().get("organic_results",[])]
         resultado["serpapi_links"] = links
-        resultado["serpapi_links_validos"] = [l for l in links if not l.startswith("/goto")]
+        resultado["serpapi_links_validos"] = [l for l in links if link_valido_serp(l)]
     except Exception as e:
         resultado["serpapi_erro"] = str(e)
     try:
@@ -614,6 +628,31 @@ def debug():
     except Exception as e:
         resultado["lusha_erro"] = str(e)
     return jsonify(resultado)
+
+
+@app.route("/limpar-cache", methods=["POST"])
+def limpar_cache():
+    """Permite ao BDR forçar uma nova busca sem precisar mexer no Render.
+    POST {"empresa": "Totvs"} limpa só aquela empresa do cache.
+    POST {"todos": true} limpa o cache inteiro."""
+    data = request.json or {}
+    entrada = (data.get("empresa") or "").strip()
+
+    if entrada:
+        cache = ler_cache()
+        chave = chave_cache(entrada)
+        existia = chave in cache
+        if existia:
+            del cache[chave]
+            gravar_cache(cache)
+        return jsonify({"removido": existia, "empresa": entrada})
+
+    if data.get("todos") is True:
+        total = len(ler_cache())
+        gravar_cache({})
+        return jsonify({"removido": True, "total_removido": total})
+
+    return jsonify({"erro": "Informe 'empresa' para limpar uma empresa específica, ou 'todos': true para limpar tudo."}), 400
 
 
 @app.route("/")
@@ -642,6 +681,7 @@ def buscar_lead():
         try:
             emails_fontes   = {}
             telefones_fontes = {}
+            whatsapp_fontes = {}
 
             def reg_email(email, fonte):
                 if not email:
@@ -658,6 +698,15 @@ def buscar_lead():
                     if chave_tel not in telefones_fontes:
                         telefones_fontes[chave_tel] = {"display": tel, "fontes": set()}
                     telefones_fontes[chave_tel]["fontes"].add(fonte)
+
+            def reg_whatsapp(tel, fonte):
+                if not tel:
+                    return
+                chave_tel = normalizar_telefone(tel)
+                if chave_tel not in contatos_norm:
+                    if chave_tel not in whatsapp_fontes:
+                        whatsapp_fontes[chave_tel] = {"display": tel, "fontes": set()}
+                    whatsapp_fontes[chave_tel]["fontes"].add(fonte)
 
             site, empresa_nome, fonte_receita = None, entrada, False
             linkedin_empresa, pessoa_rh, pessoa_fin = None, None, None
@@ -699,6 +748,8 @@ def buscar_lead():
                     reg_email(e, "site")
                 for t in extra["telefones"]:
                     reg_tel(t, "site")
+                for w in extra["whatsapp"]:
+                    reg_whatsapp(w, "site")
                 emails_site    = extra["emails"]
                 telefones_site = extra["telefones"]
             else:
@@ -835,6 +886,12 @@ def buscar_lead():
                     "telefone": display, "fontes": sorted(fontes), "origem": origem
                 })
 
+            whatsapp_classificados = []
+            for chave_w, info in list(whatsapp_fontes.items())[:5]:
+                whatsapp_classificados.append({
+                    "whatsapp": info["display"], "fontes": sorted(info["fontes"])
+                })
+
             sugestoes = sugerir_emails_departamentais(
                 dominio_email_ref or site,
                 [e["email"] for e in emails_classificados]
@@ -845,8 +902,10 @@ def buscar_lead():
                 "empresa": empresa_nome,
                 "site": site or nao_enc,
                 "telefones": [t["telefone"] for t in telefones_classificados],
+                "whatsapp": [w["whatsapp"] for w in whatsapp_classificados],
                 "emails": [{"email": e["email"], "departamento": e["departamento"]} for e in emails_classificados],
                 "telefones_detalhe": telefones_classificados,
+                "whatsapp_detalhe": whatsapp_classificados,
                 "emails_detalhe": emails_classificados,
                 "emails_sugeridos": sugestoes,
                 "socios": socios[:5],

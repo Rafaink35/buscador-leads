@@ -91,6 +91,9 @@
 
   .error-box { display: none; width: calc(100% - 40px); max-width: 580px; background: #FFF0F3; border: 2px solid #FFC2D1; border-radius: 14px; padding: 16px 20px; font-size: 13px; color: var(--red); font-weight: 500; }
   .error-box.active { display: block; }
+
+  .forcar-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .forcar-row input { cursor: pointer; accent-color: var(--flash-pink); }
 </style>
 </head>
 <body>
@@ -117,6 +120,10 @@
   </div>
   <button class="btn-buscar" id="btn-buscar" onclick="buscar()">Buscar contatos</button>
   <p class="hint">CNPJ consulta direto a Receita Federal (BrasilAPI)</p>
+  <label class="forcar-row">
+    <input type="checkbox" id="input-forcar">
+    Ignorar cache e forçar nova busca
+  </label>
 </div>
 
 <div class="loader" id="loader">
@@ -139,6 +146,10 @@
   <div class="section">
     <div class="section-title">📱 Telefones (novos, não estão no HubSpot)</div>
     <div class="item-list" id="r-telefones-novos"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">📲 WhatsApp (novos, não estão no HubSpot)</div>
+    <div class="item-list" id="r-whatsapp"></div>
   </div>
   <div class="section">
     <div class="section-title">📧 Emails confirmados</div>
@@ -189,6 +200,7 @@ function linkOuTexto(valor, url) {
 async function buscar() {
   const empresa = document.getElementById('input-empresa').value.trim();
   const numeros = document.getElementById('input-numeros').value.trim();
+  const forcar = document.getElementById('input-forcar').checked;
   if (!empresa) return;
 
   document.getElementById('result-card').classList.remove('active');
@@ -198,6 +210,13 @@ async function buscar() {
   document.getElementById('btn-buscar').disabled = true;
 
   try {
+    if (forcar) {
+      await fetch('/limpar-cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresa })
+      });
+    }
     const res = await fetch('/buscar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -227,6 +246,10 @@ async function buscar() {
       document.getElementById('r-telefones-novos').innerHTML = (!data.telefones || data.telefones.length === 0)
         ? '<div class="empty-msg">Nenhum telefone novo encontrado</div>'
         : data.telefones.map(t => `<div class="item-novo"><span>${t}</span><span class="badge-novo">NOVO</span></div>`).join('');
+
+      document.getElementById('r-whatsapp').innerHTML = (!data.whatsapp || data.whatsapp.length === 0)
+        ? '<div class="empty-msg">Nenhum WhatsApp novo encontrado</div>'
+        : data.whatsapp.map(w => `<div class="item-novo"><span>${w}</span><span class="badge-novo">NOVO</span></div>`).join('');
 
       document.getElementById('r-emails').innerHTML = (!data.emails || data.emails.length === 0)
         ? '<div class="empty-msg">Não encontrado em fonte pública</div>'
