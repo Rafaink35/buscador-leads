@@ -538,14 +538,24 @@ def lusha_search_enrich(linkedin_url: str) -> dict:
         dados = (r.json() or {}).get("data") or {}
         email = (dados.get("email") or "").lower() or None
         telefone = None
+        whatsapp = None
         phones = dados.get("phones") or []
         if phones:
             raw = phones[0].get("internationalNumber") or phones[0].get("localNumber") or ""
             if raw and telefone_plausivel(raw):
                 telefone = raw
+                try:
+                    num = re.sub(r'\D', '', raw)
+                    if num.startswith('55'):
+                        num = num[2:]
+                    if telefone_plausivel(num):
+                        ddd, resto = num[:2], num[2:]
+                        whatsapp = f"({ddd}) {resto[:5]}-{resto[5:]}" if len(resto)==9 else f"({ddd}) {resto[:4]}-{resto[4:]}"
+                except Exception:
+                    pass
         empresa_atual = ((dados.get("positions") or [{}])[0].get("companyName") or
                           dados.get("companyName") or "").lower()
-        return {"email": email, "telefone": telefone, "empresa_atual": empresa_atual}
+        return {"email": email, "telefone": telefone, "whatsapp": whatsapp, "empresa_atual": empresa_atual}
     except Exception:
         return {}
 
@@ -845,18 +855,58 @@ def buscar_lead():
                         except Exception:
                             pass
 
-            # Enriquece contatos dos decisores encontrados
+            # Enriquece contatos dos decisores encontrados + tenta nível analista se sem email
+            rh_whatsapp_str = None
+            fin_whatsapp_str = None
             if LUSHA_API_KEY:
-                for pessoa in [pessoa_rh, pessoa_fin]:
-                    if pessoa and not pessoa_completa(pessoa) and pessoa.get("linkedin") and pode_usar("lusha"):
-                        enrich = lusha_search_enrich(pessoa["linkedin"])
+                for pessoa_ref, pessoa_type in [(pessoa_rh, "rh"), (pessoa_fin, "fin")]:
+                    if pessoa_ref and pessoa_ref.get("linkedin") and pode_usar("lusha"):
+                        enrich = lusha_search_enrich(pessoa_ref["linkedin"])
                         registrar_uso("lusha")
                         if enrich.get("email"):
-                            pessoa["email"] = enrich["email"]
+                            pessoa_ref["email"] = enrich["email"]
                             reg_email(enrich["email"], "lusha")
-                        if enrich.get("telefone"):
-                            pessoa["telefone"] = enrich["telefone"]
+                        if enrich.get("telefone") and not pessoa_ref.get("telefone"):
+                            pessoa_ref["telefone"] = enrich["telefone"]
                             reg_tel(enrich["telefone"], "lusha")
+                        if enrich.get("whatsapp"):
+                            if pessoa_type == "rh":
+                                rh_whatsapp_str = enrich["whatsapp"]
+                                reg_whatsapp(enrich["whatsapp"], "lusha")
+                            elif pessoa_type == "fin":
+                                fin_whatsapp_str = enrich["whatsapp"]
+                                reg_whatsapp(enrich["whatsapp"], "lusha")
+
+                # Tenta nível analista para email se gerente sem email
+                if pessoa_rh and not pessoa_rh.get("email"):
+                    r_rh_an2, usou = buscar_linkedin_pessoa(f'{termo_busca} analista rh linkedin')
+                    if usou:
+                        registrar_uso("serpapi")
+                    analista_rh = extrair_pessoa_linkedin(r_rh_an2, termo_busca, termos_rh_an, aceitar_analista=False)
+                    if analista_rh and analista_rh.get("linkedin") and pode_usar("lusha"):
+                        enrich_an = lusha_search_enrich(analista_rh["linkedin"])
+                        registrar_uso("lusha")
+                        if enrich_an.get("email"):
+                            pessoa_rh["email"] = enrich_an["email"]
+                            reg_email(enrich_an["email"], "lusha")
+                        if enrich_an.get("whatsapp") and not rh_whatsapp_str:
+                            rh_whatsapp_str = enrich_an["whatsapp"]
+                            reg_whatsapp(enrich_an["whatsapp"], "lusha")
+
+                if pessoa_fin and not pessoa_fin.get("email"):
+                    r_fin_an2, usou = buscar_linkedin_pessoa(f'{termo_busca} analista financeiro linkedin')
+                    if usou:
+                        registrar_uso("serpapi")
+                    analista_fin = extrair_pessoa_linkedin(r_fin_an2, termo_busca, termos_fin_an, aceitar_analista=False)
+                    if analista_fin and analista_fin.get("linkedin") and pode_usar("lusha"):
+                        enrich_an = lusha_search_enrich(analista_fin["linkedin"])
+                        registrar_uso("lusha")
+                        if enrich_an.get("email"):
+                            pessoa_fin["email"] = enrich_an["email"]
+                            reg_email(enrich_an["email"], "lusha")
+                        if enrich_an.get("whatsapp") and not fin_whatsapp_str:
+                            fin_whatsapp_str = enrich_an["whatsapp"]
+                            reg_whatsapp(enrich_an["whatsapp"], "lusha")
 
             # Registra emails/telefones dos decisores
             for pessoa in [pessoa_rh, pessoa_fin]:
@@ -915,10 +965,12 @@ def buscar_lead():
                 "linkedin_rh_url": pessoa_rh.get("linkedin") if pessoa_rh else None,
                 "rh_email": pessoa_rh.get("email") if pessoa_rh else None,
                 "rh_telefone": pessoa_rh.get("telefone") if pessoa_rh else None,
+                "rh_whatsapp": rh_whatsapp_str or None,
                 "linkedin_financeiro": (pessoa_fin["nome_cargo"]+" (a confirmar)") if pessoa_fin else nao_enc,
                 "linkedin_financeiro_url": pessoa_fin.get("linkedin") if pessoa_fin else None,
                 "financeiro_email": pessoa_fin.get("email") if pessoa_fin else None,
                 "financeiro_telefone": pessoa_fin.get("telefone") if pessoa_fin else None,
+                "financeiro_whatsapp": fin_whatsapp_str or None,
                 "niveis_usados": list(dict.fromkeys(niveis_usados)),
                 "veio_do_cache": False,
             }
